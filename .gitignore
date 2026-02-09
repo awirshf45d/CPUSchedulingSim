@@ -3,4 +3,8 @@
 # But track these files (whitelist)
 !README.md
 !main.py
+!main_lagacy.py
 !test.py
+!Project_Diagram.drawio
+
+!struct.txt
