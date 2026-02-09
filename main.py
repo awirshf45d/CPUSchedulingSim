@@ -294,7 +294,6 @@ current_time = int(0)
 
 
 class SystemState(Enum):
-    """What is the CPU doing right now?"""
     IDLE = "IDLE"
     CS_SAVE = "CS_SAVE"
     CS_LOAD = "CS_LOAD"
