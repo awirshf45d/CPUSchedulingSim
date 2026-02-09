@@ -287,9 +287,18 @@ from .types import (
 # scheduler= CPUScheduler(input_data=process_inputs, context_switch_time=2, time_quantum=5)
 
 
+from enum import Enum
+
 TICK = int(0)
 current_time = int(0)
 
+
+class SystemState(Enum):
+    """What is the CPU doing right now?"""
+    IDLE = "IDLE"
+    CS_SAVE = "CS_SAVE"
+    CS_LOAD = "CS_LOAD"
+    EXECUTING = "EXECUTING"
 
 class Process:    # Defines the Process Object
     def __init__(self, pid, arrival_time, burst_time):
@@ -304,7 +313,6 @@ class Process:    # Defines the Process Object
         self.response_time = -1  # First CPU time - arrival
         self.start_time = -1  # When first started
         self.completion_time = -1  # When finished
-        # self.last_active_time = arrival_time # Used to calculate waiting ???
 
 
 
@@ -312,20 +320,20 @@ class CPUScheduler:
     def __init__(self, processes_data, context_switch_time=0, time_quantum=5):
         # processes_data = [[arrival, burst], ...]
 
-        self.processes = []  # processes = [Process(i, at, bt), Process(i, at, bt), Process(i, at, bt), ... ]
+        self.processes = []  # processes = [Process(pid, at, bt), Process(pid, at, bt), Process(pid, at, bt), ... ]
 
-        for i, (bt, at) in enumerate(processes_data):
+        for i, (at, bt) in enumerate(processes_data):
             self.processes.append(Process(i, at, bt))
 
 
         self.context_switch_time = context_switch_time
-        self.half_cs = context_switch_time // 2 if context_switch_time > 0 else 0  # Save/load duration; assume equal split
-        
+        self.half_cs = context_switch_time // 2    # Save/load duration; assume equal split
+
         self.time_quantum = time_quantum
         self.time = 0
-        
+
         self.gantt = []  # List of (start, end, pid, event_type) e.g., "arrival", "execution", "save_context", "load_context", "idle"
-        
+
         self.ready_queue = []
 
         self.current_process = None
@@ -344,16 +352,16 @@ class CPUScheduler:
                 # self.current_process = ...
                 pass
             elif algorithm == "SJF":
-                # self.current_process = None
+                # self.current_process = ...
                 pass
             elif algorithm == "HRRN":
-                # self.current_process = None
+                # self.current_process = ...
                 pass
             elif algorithm == "Round-Robin":
-                # self.current_process = None
+                # self.current_process = ...
                 pass
             elif algorithm == "SRTF":
-                # self.current_process = None
+                # self.current_process = ...
                 pass
             else:
                 raise ValueError(f"Unknown Scheduler algorithm: {algorithm}")
@@ -378,13 +386,12 @@ class CPUScheduler:
         
         
         
+# processes_data = [[at0, bt0], [at1, bt1], [at2, bt2], [at3, bt3]]
+# processes_data = [[1, 6], [8, 5], [10.25, 2], [17.50, 3]]
 
-
-
-processes_data = [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000]
+processes_data = [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ]
 
 s = CPUScheduler(processes_data, context_switch_time=2)
 print(len(s.processes))
 print(s.processes)
-
 
