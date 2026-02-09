@@ -348,40 +348,42 @@ class CPUScheduler:
         if self.ready_queue:
 
             if algorithm == "FCFS":
-                # self.current_process = ...
+                # self.current_process = ..........
                 pass
+
             elif algorithm == "SJF":
                 # self.current_process = ...
                 pass
+
             elif algorithm == "SRTF":
-                # self.current_process = ...
+                # self.current_process = ..........
                 pass
+
             elif algorithm == "Round-Robin":
                 # self.current_process = ...
                 pass
+
             elif algorithm == "HRRN":
                 # self.current_process = ...
                 pass
+
             else:
                 raise ValueError(f"Unknown Scheduler algorithm: {algorithm}")
 
         else:
             self.current_process = None
 
+    # Check if any processes arrive at the current time and add to ready queue
+    def check_arrivals(self):
+        for process in self.processes:
 
-    def dispatcher():
-        # doing context switch (load)
-        pass
+            if process.arrival_time == current_time:
+                self.ready_queue.append(process)
 
 
-    def cpu_burst():
-        pass
 
-    def clock_tick(duration):
-        global current_time
 
-        for i in range(duration):
-            current_time += TICK
+
         
         
         
