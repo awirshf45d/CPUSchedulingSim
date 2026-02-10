@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
-from .types import (
-    SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
-    STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
-    TICK, TIME_SCALE, CURRENT_TIME
-)
+# from dataclasses import dataclass, field
+# from typing import Optional, List, Tuple
+# from .types import (
+#     SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
+#     STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
+#     TICK, TIME_SCALE, CURRENT_TIME
+# )
 
 # @dataclass
 # class CPUScheduler:
@@ -388,11 +388,11 @@ class CPUScheduler:
         
         
 # processes_data = [[at0, bt0], [at1, bt1], [at2, bt2], [at3, bt3]]
-# processes_data = [[1, 6], [8, 5], [10.25, 2], [17.50, 3]]
+processes_data = [[1, 6], [8, 5], [10.25, 2], [17.50, 3]]
 
-processes_data = [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ]
+# processes_data = [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ]
 
 s = CPUScheduler(processes_data, context_switch_time=2)
 print(len(s.processes))
-print(s.processes)
+print(s.processes[0])
 
