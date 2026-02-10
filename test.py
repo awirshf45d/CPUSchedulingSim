@@ -120,15 +120,3 @@ print(ls)
 
 
 
-<<<<<<< HEAD
-        if self.current_process.remaining_time <= 0:
-            self.current_process.completion_time = self.time
-            self.current_process.turnaround_time = self.current_process.completion_time - self.current_process.arrival_time
-            self.current_process.wait_time = self.current_process.turnaround_time - self.current_process.burst_time
-            # Process finished
-            self.current_process = None
-    def clock_tick(self) -> None:
-        global CURRENT_TIME, TICK
-        CURRENT_TIME += TICK
-=======
->>>>>>> 642dcbf8e6c352d7b558557fd9bd25b000b9f57f
