@@ -1,10 +1,10 @@
-# from dataclasses import dataclass, field
-# from typing import Optional, List, Tuple
-# from .types import (
-#     SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
-#     STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
-#     TICK, TIME_SCALE, CURRENT_TIME
-# )
+from dataclasses import dataclass, field
+from typing import Optional, List, Tuple
+from .types import (
+    SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
+    STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
+    TICK, TIME_SCALE, CURRENT_TIME
+)
 
 # @dataclass
 # class CPUScheduler:
@@ -286,32 +286,19 @@
 # )
 # scheduler= CPUScheduler(input_data=process_inputs, context_switch_time=2, time_quantum=5)
 
+# class Process:    # Defines the Process Object
+#     def __init__(self, pid, arrival_time, burst_time):
+#         self.pid = pid  # Unique ID (0,1,2...)
+#         self.arrival_time = arrival_time
+#         self.burst_time = burst_time
+#         self.remaining_time = burst_time
 
-from enum import Enum
-
-TICK = int(0)
-current_time = int(0)
-
-
-class SystemState(Enum):
-    IDLE = "IDLE"
-    CS_SAVE = "CS_SAVE"
-    CS_LOAD = "CS_LOAD"
-    EXECUTING = "EXECUTING"
-
-class Process:    # Defines the Process Object
-    def __init__(self, pid, arrival_time, burst_time):
-        self.pid = pid  # Unique ID (0,1,2...)
-        self.arrival_time = arrival_time
-        self.burst_time = burst_time
-        self.remaining_time = burst_time
-
-        # Metrics
-        self.wait_time = 0  # Accumulated wait
-        self.turnaround_time = 0  # To be calculated
-        self.response_time = -1  # First CPU time - arrival
-        self.start_time = -1  # When first started
-        self.completion_time = -1  # When finished
+#         # Metrics
+#         self.wait_time = 0  # Accumulated wait
+#         self.turnaround_time = 0  # To be calculated
+#         self.response_time = -1  # First CPU time - arrival
+#         self.start_time = -1  # When first started
+#         self.completion_time = -1  # When finished
 
 
 

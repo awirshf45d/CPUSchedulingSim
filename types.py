@@ -13,6 +13,12 @@ TICK: Literal[1] = 1 # One tick = base simulation time unit
 TIME_SCALE: int = 1000  # e.g., inputs are in milliseconds → scale by 1000
 CURRENT_TIME: int = 0 # Global current time in ticks
 
+# System config
+class SystemState(Enum):
+    IDLE = "IDLE"
+    CS_SAVE = "CS_SAVE"
+    CS_LOAD = "CS_LOAD"
+    EXECUTING = "EXECUTING"
 
 # Scheduling
 ## algorithms
@@ -25,10 +31,21 @@ class ContextSwitchPhase(Enum):
 
 
 # Process
-## Process categories (used by MLQ algorithm)
-ProcessCategory = Literal["real_time", "system", "interactive", "batch"]
+## Process categories (used by MLQ)
+class ProcessPriority(Enum):
+    REAL_TIME = (0, 31) #(Highest Priority, Base Priority)
+    SYSTEM = (32, 63)
+    INTERACTIVE = (64, 95)
+    BATCH = (96, 127)
+    DEFAULT = (0, 127)
+
 ## Process States
-ProcessState = Literal["new", "running", "waiting", "ready", "terminated"]
+class ProcessState(Enum):
+    NEW = auto()
+    READY = auto()
+    RUNNING = auto()
+    WAITING = auto()
+    TERMINATED = auto()
 
 @dataclass
 class Process:
@@ -42,8 +59,7 @@ class Process:
     response_time: int = -1  # start_time (First CPU time) - arrival_time, in ticks
     completion_time: int = -1  # When finished
     state: ProcessState = field(init=False)
-    category: ProcessCategory
-    memory_needed_kb: float = 0.0  # Added for jobs
+    priority: ProcessPriority
 
     def __post_init__(self) -> None:
         if self.arrival_time < 0:
@@ -51,7 +67,7 @@ class Process:
         if self.burst_time <= 0:
             raise ValueError("burst_time must be positive")
         self.remaining_time = self.burst_time
-        self.state = "new"
+        self.state = ProcessState.NEW
 
 
 # Ready Queue + RAM
