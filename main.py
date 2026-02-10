@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
-from .types import (
-    SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
-    STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
-    TICK, TIME_SCALE, CURRENT_TIME
-)
+# from dataclasses import dataclass, field
+# from typing import Optional, List, Tuple
+# from .types import (
+#     SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
+#     STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
+#     TICK, TIME_SCALE, CURRENT_TIME
+# )
 
 # @dataclass
 # class CPUScheduler:
@@ -343,42 +343,58 @@ class CPUScheduler:
         self.outgoing_process = None  # For save phase
 
 
-    def select_next_process(self, algorithm):
-        
-        if self.ready_queue:
-
-            if algorithm == "FCFS":
-                # self.current_process = ..........
-                pass
-
-            elif algorithm == "SJF":
-                # self.current_process = ...
-                pass
-
-            elif algorithm == "SRTF":
-                # self.current_process = ..........
-                pass
-
-            elif algorithm == "Round-Robin":
-                # self.current_process = ...
-                pass
-
-            elif algorithm == "HRRN":
-                # self.current_process = ...
-                pass
-
-            else:
-                raise ValueError(f"Unknown Scheduler algorithm: {algorithm}")
-
-        else:
-            self.current_process = None
-
     # Check if any processes arrive at the current time and add to ready queue
     def check_arrivals(self):
         for process in self.processes:
 
             if process.arrival_time == current_time:
                 self.ready_queue.append(process)
+
+
+    def select_next_process(self, algorithm):
+        
+        if self.ready_queue:
+
+            if algorithm == "FCFS":
+                return self.ready_queue.pop|(0)
+
+
+            # elif algorithm == "SJF":
+            #     pass
+
+            elif algorithm == "SRTF":
+                # return ... TODO
+                pass
+
+            # elif algorithm == "Round-Robin":
+            #     pass
+
+            # elif algorithm == "HRRN":
+            #     pass
+
+            else:
+                raise ValueError(f"Unknown Scheduler algorithm: {algorithm}")
+
+        else:
+            return None
+
+
+    def dispatcher(self, loaded_process):
+        self.current_process = loaded_process
+
+
+    def run_cpu_sceduler(self):
+
+        segment_start = self.time   # Start of current Gantt segment
+        current_system_state = "IDLE"    # Setting current system state
+
+        while True:
+
+            self.check_arrivals()
+
+        pass
+
+
 
 
 
