@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
-from .types import (
-    SchedulerInput, JobInput, ProcessInput, Process, ReadyQueue, RAM,
-    STSAlgorithm, LTSAlgorithm, ContextSwitchPhase, PriorityBand,
-    TICK, TIME_SCALE, CURRENT_TIME
+from typing import Literal, Union, List, Dict, Tuple, Set
+from definitions import (
+    TICK, CURRENT_TIME,
+    CPUState, SchedulerMode, # CPU state
+    Process, Job,
+    InputList, validate_input_and_determine_scheduler_mode, scale_input_time
 )
 
 # @dataclass
@@ -387,15 +387,17 @@ class CPUScheduler:
 
 
 
-        
-        
-        
-# processes_data = [[at0, bt0], [at1, bt1], [at2, bt2], [at3, bt3]]
-processes_data = [[1, 6], [8, 5], [10.25, 2], [17.50, 3]]
+input_list: InputList = [[1, 6], [8, 5], [0.10000, 2], [17.51, 3]] # [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ] 
+input_quantum_time: float = 3
+input_cs_time: float = 1
 
-# processes_data = [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ]
+scheduler_mode: SchedulerMode = validate_input_and_determine_scheduler_mode(data_list=input_list, q=input_quantum_time, cs=input_cs_time)
+(scaled_list, q_scaled, cs_scaled) = scale_input_time(data_list=input_list, q=input_quantum_time, cs=input_cs_time, scheduler_mode=scheduler_mode, max_precision=4)
 
-s = CPUScheduler(processes_data, context_switch_time=2)
-print(len(s.processes))
-print(s.processes[0])
+
+
+
+# s = CPUScheduler(processes_data, context_switch_time=2)
+# print(len(s.processes))
+# print(s.processes[0])
 
