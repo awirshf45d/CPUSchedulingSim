@@ -19,7 +19,9 @@ CURRENT_TIME: int = 0 # Global current time in ticks
 STSAlgorithm = Literal["FCFS", "SPN", "HRRN", "RR", "SRTF", "MLQ", "MLFQ"]
 LTSAlgorithm = Literal["FIFO", "SJF", "Random"]
 ## Context Switch Phases
-ContextSwitchPhase=Literal["save","load"]
+class ContextSwitchPhase(Enum):
+    SAVE = auto()
+    LOAD = auto()
 
 
 # Process
@@ -53,7 +55,7 @@ class Process:
 
 
 # Ready Queue + RAM
-## Priority bands for MLQ,MLFQ
+## Priority bands for MLQ
 class PriorityBand(Enum):
     REAL_TIME   = (0, 5)    # Highest priority – e.g., RR with small quantum
     SYSTEM      = (6, 11)   # System processes 
