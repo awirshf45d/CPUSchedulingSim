@@ -370,7 +370,7 @@ class CPUScheduler:
         self.current_process = loaded_process
 
 
-    def run_cpu_sceduler(self):
+    def run_cpu_sceduler(self, algorithm):
 
         segment_start = self.time   # Start of current Gantt segment
         current_system_state = "IDLE"    # Setting current system state
@@ -379,7 +379,20 @@ class CPUScheduler:
 
             self.check_arrivals()
 
-        pass
+            selected_process = self.select_next_process(algorithm)
+
+
+            if algorithm == "FCFS":
+
+                if current_system_state == "EXECUTING":
+
+                    # start context switch save
+
+                if current_system_state == "IDLE":
+
+                    if selected_process:
+
+                        # start context switch load
 
 
 
