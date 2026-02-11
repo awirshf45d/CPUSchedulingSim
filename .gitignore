@@ -1,13 +1,20 @@
 # Ignore everything
 *
-# But track these files (whitelist)
+
+# Allow directories so Git can scan inside them
+!*/
+
+# Whitelist root files
 !README.md
 !main.py
 !main_lagacy.py
 !test.py
 !Project_Diagram.drawio
 !definitions.py
-
 !struct.txt
+!backbone.txt
+!BlenderCode.py
 
+# Whitelist a directory and its contents
 !AI Code/
+!AI Code/**
