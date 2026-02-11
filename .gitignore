@@ -13,7 +13,7 @@
 !definitions.py
 !struct.txt
 !backbone.txt
-!BlenderCode
+!BlenderCode.py
 
 # Whitelist a directory and its contents
 !AI Code/
