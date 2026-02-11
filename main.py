@@ -394,8 +394,28 @@ class CPUScheduler:
 
                         # start context switch load
 
+                        pass
 
+                    
+g = [
 
+    # Event:
+    [   
+        current_time,    # current TICK number
+        system_state,    # "IDLE", "CS_LOAD", "CS_SAVE", "EXECUTING"
+        event_type,    # like: arrivale, process selection, process termination
+        event_specifications    # like: arrivale, process selection, process termination
+    ],
+    
+    # segment specifications
+    [
+        start,
+        end,
+        system_state,
+        pid
+    ]
+         
+    ]
 
 
 
