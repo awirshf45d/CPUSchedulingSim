@@ -464,3 +464,70 @@ print(type(p0.process_pcb.accounting))
 
 
 
+# TMP:
+
+
+
+# Check if any processes arrive at the current time and add to ready queue
+def check_arrivals(self):
+    for process in self.processes:
+
+        if process.arrival_time == current_time:
+            self.ready_queue.append(process)
+
+
+def select_next_process(self, algorithm):
+    
+    if self.ready_queue:
+
+        if algorithm == "FCFS":
+            return self.ready_queue.pop|(0)
+
+
+        # elif algorithm == "SJF":
+        #     pass
+
+        elif algorithm == "SRTF":
+            # return ... TODO
+            pass
+
+        # elif algorithm == "Round-Robin":
+        #     pass
+
+        # elif algorithm == "HRRN":
+        #     pass
+
+        else:
+            raise ValueError(f"Unknown Scheduler algorithm: {algorithm}")
+
+    else:
+        return None
+
+
+def dispatcher(self, loaded_process):
+    self.current_process = loaded_process
+
+
+def run_cpu_sceduler(self, algorithm):
+
+    segment_start = self.time   # Start of current Gantt segment
+    current_system_state = "IDLE"    # Setting current system state
+
+    while True:
+
+        self.check_arrivals()
+
+        selected_process = self.select_next_process(algorithm)
+
+
+        if algorithm == "FCFS":
+
+            if current_system_state == "EXECUTING":
+                pass
+                # start context switch save
+            if current_system_state == "IDLE":
+
+                if selected_process:
+                    pass
+                    # start context switch load
+
