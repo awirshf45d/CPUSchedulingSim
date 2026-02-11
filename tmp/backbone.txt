@@ -1,0 +1,288 @@
+# Initialization (before loop)
+
+
+
+
+input_list: InputList = [[1, 6], [8, 5], [0.10000, 2], [17.51, 3]] 
+input_quantum_time: float = 3
+input_cs_time: float = 1
+
+
+input get's converted into:
+# [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ] 
+# quantum time: 30000
+# cs time: 10000
+
+
+
+
+Create ready_queues from config (each with algorithm, priority_band, quantum if needed).
+Sort inputs by arrival_time_ticks.
+Set processes = []  # Active processes (added on arrival).
+
+Set current_time = 0
+Set segment_start = current_time
+Set system_state = IDLE
+Set current_label = "IDLE"
+
+Set current_process = None
+Set outgoing_process = None
+
+Set cs_progress = 0
+Set cs_phase = None  # SAVE or LOAD
+
+Set gantt = []  # (start, end, label)
+
+Set next_input_index = 0  # Pointer to next arriving input in sorted list
+
+while True:  # Each iteration advances simulation by 1 tick
+
+    # 1. Handle Arrivals
+    #    - Check for processes arriving exactly at current_time.
+    #    - Create Process object, assign to appropriate ready_queue by category/priority_band.
+    #    - Increment pointer for next arrivals.
+
+    check_arrivals():
+
+        while ( next_input_index < len(inputs) ) and ( inputs[next_input_index].arrival_time_ticks == current_time ):
+
+            Take the arriving input and create a new Process with scaled times, set state to READY.
+
+            Add the process to overall processes list.
+
+            Find the matching ready_queue based on input category (maps to priority_band).
+
+            Append the process to that ready_queue.
+
+            Increment next_input_index to point to the next potential arrival.
+
+
+
+    # 2. Check for Preemption
+    #    - Only if currently EXECUTING.
+    #    - Peek at potential next process from highest priority non-empty queue.
+    #    - If it should preempt (higher band or within-queue for preemptive algos like SRTF), start CS_SAVE.
+
+    if system_state == EXECUTING:
+
+        if check_preemption(current_process):  # Determines if a better process is ready (higher priority or shorter remaining time, etc.)
+
+            Log the current Gantt segment up to now.
+
+            Update segment_start to current_time.
+
+            Set outgoing_process to current_process (the one being preempted).
+
+            Select and set current_process to the new next process (removes from its queue).
+
+            If context_switch_time > 0, set state to CS_SAVE, phase to SAVE, progress to 0, label to "CS_SAVE".
+
+            Else, directly set state to EXECUTING, label to "EXECUTING".
+
+            Advance current_time by 1.
+
+            Continue to next loop iteration.
+
+
+
+
+
+
+    # 3. Update Waiting Metrics
+    #    - Increment wait_time for every process currently in any ready_queue (they are waiting).
+
+    for each ready_queue in ready_queues:
+
+        for each process in that ready_queue:
+
+            Increment process.wait_time by 1.
+
+
+
+
+
+
+    # 4. Handle Current System State
+    #    - Advance the simulation based on state: progress CS, execute burst, or start next from IDLE.
+    #    - Include abort checks during CS for preemptive cases.
+
+    match system_state:
+
+        case CS_LOAD:
+
+            Increment cs_progress by 1.
+
+            If the algorithm allows aborts (preemptive) and check_preemption indicates a better process arrived:
+
+                Log aborted CS segment.
+
+                Update segment_start.
+
+                Put the incoming current_process back into its ready_queue.
+
+                Set current_process to None, state to IDLE, label to "IDLE", reset cs_progress and phase.
+
+                Advance time by 1 and continue to next iteration.
+
+            If cs_progress >= half_cs (load phase complete):
+
+                Log CS_LOAD segment.
+
+                Update segment_start.
+
+                Set state to EXECUTING, label to "EXECUTING", reset cs_progress and phase.
+
+                If this is the process's first run, set start_time and response_time.
+
+                Set process state to RUNNING.
+
+
+        case CS_SAVE:
+
+            Increment cs_progress by 1.
+
+            If algorithm allows aborts and check_preemption on outgoing_process:
+
+                Log aborted CS segment.
+
+                Update segment_start.
+
+                Resume by setting current_process back to outgoing_process, clear outgoing.
+
+                Set state to EXECUTING, label to "EXECUTING", reset cs_progress and phase.
+
+                Advance time by 1 and continue.
+
+            If cs_progress >= half_cs (save phase complete):
+
+                Log CS_SAVE segment.
+
+                Update segment_start.
+
+                If outgoing_process has remaining_time > 0, set its state to READY and add back to its ready_queue.
+
+                Else, mark as TERMINATED, set completion_time and turnaround_time.
+
+                Clear outgoing_process.
+
+                Set state to CS_LOAD, phase to LOAD, reset cs_progress, update label to "CS_LOAD".
+
+
+        case EXECUTING:
+
+            Decrement current_process.remaining_time by 1.
+
+            If remaining_time <= 0 (burst complete):
+
+                Log EXECUTING segment up to next tick.
+
+                Update segment_start to current_time + 1.
+
+                Set completion_time and turnaround_time.
+
+                Set state to TERMINATED for the process.
+
+                Clear current_process, set system_state to IDLE, label to "IDLE".
+
+
+        case IDLE:
+
+            Peek at next available process from highest priority non-empty queue.
+
+            If there is one:
+
+                Log IDLE segment up to now.
+
+                Update segment_start.
+
+                Select and set current_process (removes from queue).
+
+                If context_switch_time > 0, set state to CS_LOAD, phase to LOAD, progress to 0, label to "CS_LOAD".
+
+                Else, set state to EXECUTING, label to "EXECUTING".
+
+
+
+    Advance current_time by 1.
+
+
+
+    # 5. Check for Termination
+    #    - End if no more arrivals, all queues empty, no current process, and idle.
+
+    if next_input_index == len(inputs) and all ready_queues are empty and current_process is None and system_state == IDLE:
+
+        Log any final Gantt segment.
+
+        Break the loop.
+
+
+
+
+
+
+# Helper Functions (Descriptive)
+
+peek_next_process():
+
+    Identify the highest priority (lowest band number) non-empty ready_queue.
+
+    Within that queue, peek at the top process based on its algorithm (e.g., earliest arrival for FCFS, shortest remaining for SRTF) without removing it.
+
+
+
+select_next_process():
+
+    Same as peek, but select and remove the top process from the queue.
+
+
+
+find_ready_queue_for_category(category):
+
+    Map the category to its priority_band.
+
+    Return the ready_queue that matches that band.
+
+
+
+check_preemption(process):
+
+    Peek at potential next_process.
+
+    If none, return False.
+
+    Get current_queue for the given process, next_queue for peeked.
+
+    If next_queue has higher priority (lower band), return True.
+
+    If same queue and queue's algorithm is preemptive:
+
+        Compare based on algo (e.g., for SRTF: if next.remaining < process.remaining, True).
+
+    Else, False.
+
+
+
+is_preemptive(algo):
+
+    Return True if algo is "RR" or "SRTF", else False (for FCFS, SPN, HRRN).
+
+
+
+algorithm_allows_abort(algo):
+
+    Same as is_preemptive (aborts only for preemptive algos).
+
+
+
+log_gantt(start, end, label, pid=None):
+
+    If segment has duration (start < end):
+
+        Append to gantt: (start / TIME_SCALE, end / TIME_SCALE, label with optional _P{pid}, pid)  # Unscale times for output.
+
+
+
+# Post-Simulation
+#    - Calculate averages: avg wait_time, turnaround_time, etc. across processes.
+#    - Output gantt data for use in Blender (e.g., as JSON or list).

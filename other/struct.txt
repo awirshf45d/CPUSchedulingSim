@@ -1,0 +1,328 @@
+
+
+
+
+
+
+SYSTEM ARCHITECTURE (FUNCTIONAL SCHEDULER + CPU)
+================================================
+
+CLASSES:
+    - Process
+    - PCB
+    - RAM
+    - HardDrive
+
+FUNCTIONS:
+    - long_term_scheduler(...)
+    - short_term_scheduler(...)
+    - scheduler_algorithm(...)      # SJF / FIFO / Priority / RR
+    - cpu_step(...)
+    - dispatch(...)
+    - context_switch(...)
+    - handle_io(...)
+
+---------------------------------------------------------------
+PROCESS OBJECT:
+
+    Purpose:
+        Represents a running program at a high level.
+        Holds user-level metadata and simulation metadata.
+
+    Attributes:
+        - name           : str
+        - pcb            : PCB
+        - program_code   : list / instruction stream
+        - metadata       : dict
+        - cpu_bursts     : list[int] (simulation) *?
+        - io_pattern     : list[int] (simulation) *?
+
+    Interactions:
+        - Given to long_term_scheduler for admission.
+        - CPU + scheduler operate through process.pcb fields.
+
+---------------------------------------------------------------
+PCB OBJECT
+
+    Purpose:
+        Stores kernel-level execution state.
+
+    Attributes:
+        - pid                : int
+        - state              : NEW, READY, RUNNING, WAITING, TERMINATED
+        - program_counter    : int
+        - scheduling_info    : { priority, total_cpu_time, ... }
+        - accounting         : { cpu_time, io_time, ... }
+        - registers          : dict or list (simulated) *?
+        - cpu_burst_remaining: int *?
+        - memory_bounds      : (start, end) *?
+
+    Interactions:
+        - short_term_scheduler reads it
+        - cpu_step updates it
+        - context_switch saves/restores registers & PC
+
+---------------------------------------------------------------
+RAM OBJECT
+
+    Attributes:
+        - size: Ram capacity amount (in KBs)
+        - occupied_regions: list of (pid, start, end)
+        - memory: list/dict address -> value *?
+
+    Interactions:
+        - long_term_scheduler checks for space
+        - code is loaded here before process starts
+        - cpu_step fetches next instruction from RAM
+
+---------------------------------------------------------------
+HARD_DRIVE OBJECT
+
+    Attributes:
+        - programs: name/pid -> instruction list
+
+    Interactions:
+        - long_term_scheduler loads program from here into RAM
+
+---------------------------------------------------------------
+FUNCTIONAL COMPONENTS
+
+    long_term_scheduler(process_list, ram, ready_queue):
+        - For each new process:
+            * test memory availability in RAM
+            * load program into RAM
+            * set pcb.state = READY
+            * add to ready_queue
+
+    short_term_scheduler(ready_queue, algorithm):
+        - return algorithm(ready_queue)
+
+    scheduler_algorithm(...) (example: FIFO, SJF, RR):
+        - takes ready list
+        - returns one process based on chosen policy
+
+    cpu_step(process, time_quantum):
+        - simulate CPU executing process for N steps
+        - decrement pcb.cpu_burst_remaining
+        - move to WAITING or TERMINATED if burst ends
+        - update registers, PC
+
+    dispatch(selected_process):
+        - context_switch into selected PCB
+        - set process.pcb.state = RUNNING
+
+    context_switch(old, new):
+        - save old registers to old.pcb
+        - load new registers from new.pcb
+
+    handle_io(io_queue, ready_queue):
+        - move I/O-finished processes back to ready_queue
+
+---------------------------------------------------------------
+OVERALL LOOP
+
+    1. long_term_scheduler admits programs into RAM and ready_queue.
+    2. short_term_scheduler picks next process using chosen algorithm.
+    3. dispatch chosen process.
+    4. cpu_step executes it.
+    5. If WAITING → move to io_queue.
+    6. If TERMINATED → remove from system.
+    7. handle_io wakes up processes back to ready_queue.
+    8. Loop continues.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+say we have:
+new_queue = [p0 = 20, p1 = 15, p2 = 80, p3 = 25]
+
+then if we go by SJF:
+by definition, we have to select/import the shortest job,
+which happens to be the smallest size here in my simulation.
+so even if we compensate for that un-importable process and put it
+aside somehow, we would have the same problem of the lack of space for
+the next process (being the second shortest/smallest process) because if don't have
+the space for p1, how ae we gonna have space for p0 or even p3 ?
+so that just goes through the entire new_queue, putting all of them aside for it to not even select
+any of them at the end.
+I think what you are suggesting is to basically rewrite my sim and separate size and burst time.
+
+----------------------------------------------------------------------------------------
+
+
+ok so a key question here, is cpu like a blind calculator that just computes?
+or does it do some control stuff as well? take this sim for example,
+say we have process_0 on the ram and in the ready_queue.
+process_0 needs to at some pint in time:
+    get dispatched/become "RUNNING"
+    (maybe) become "WAITING" due to I/O event happening and come back into ready_queue from waiting_queue in case of I/O completion
+    get interrupted (running out of time slice) and become "READY" again.
+    exit and get TERMINATED (and subsequentally be erased from RAM as well)
+
+does STS do all of this?
+if not who/what does and how?
+does cpu do these kid of things?
+
+
+
+----------------------------------------------------------------------------------------
+
+Program_0
+    program_name = "..."
+    program_instructions = []
+    program_size = len(program_instructions)
+    program_metadata = ["...", "...", ["tag"]]
+
+
+
+Process_0
+    process_name = "..."
+    process_pcb
+        pID = num
+        program_counter = num
+        process_state = "NEW"/"READY"/"RUNNING"/"WAITING"/"TERMINATED"
+        scheduling_info = {
+            "priority": 1 - 10,
+            "total_cpu_time" : num
+            }
+        accounting = {
+            "cpu_time": int(0),
+             "io_time": int(0)
+             } 
+    process_code = []
+    process_metadata = ["...", "...", ["tag"]]
+    process_arrival_time = num
+    process_estimated_burst_time = len(process_code)
+    process_remaining_burst_time = num
+
+
+
+STS:
+    chooses a process from the ready_queue based on the algorithm
+
+    preemptive(FCFS/SJF):
+        1. chooses a process
+        2. calls the dispatcher
+        (time passes until the process gets finished)
+        
+
+
+
+
+
+----------------------------------------------------------------------------------------
+
+
+New → Ready : Long Term Scheduler
+
+Ready → Running : Short Term Scheduler
+
+Running → Ready : Timer interrupt + OS Scheduler
+
+Running → Waiting : The Running Process triggers it, OS handles it
+Waiting → Ready : Interrupt handler (Part of OS)
+
+Running → Terminated : Process triggers exit, OS cleans up
+
+
+
+
+
+Default Sim Round-Robin Time slice: 200ms
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+# at the beggining (before running the sim)"
+# depending on the inputs (if we have a `arrival time` at 17.765 , then we would have to multiply every "at" and "bt" in the process list by 1000 so that we have the simulation make up for that prececion, and then consecuently the cs time also get's multiplied by 1000)and the context switch time is determined by us
+# I made this decicion because I don't want to work with floats, they are messy and unpredectable.
+
+"""so if we have a list of process_data like so: [ [1, 2], [3, 5], [4, 2] ]
+the number of times the sim loops would be
+way less than if we have them like: [ [1.001, 2], [3, 5], [4, 2] ]"""
+
+
+while True:    # each cycle is a Tick
+
+    some function():    
+        """this one probably does not need to depend on the system state,
+        bacause it should run in every tick/moment in time to
+        ckeck arrivals and see if they have higher priority.
+        (specifically for preemtive algos but for the sake of my sanity,
+        I would just have it like this for all of them and
+        just not let non preemptives change state untill cpuburst is done.)"""
+
+        some_function_that_does_arrivals():
+            """we call this one the green function that
+            checks if we have arrivals into
+            ready_queueat this moment/Tick"""
+
+            if (there is a process in the processes list such that: process.arrival_time == current_time):
+                ready_queue.append(process)
+
+        select_next_process(algorithm):
+            """we call this the yellow function
+            which selects the next process to be
+            'context switched on' or rather get loaded basically,
+            based on whatever algo we chosse"""
+
+            if ready_queue is empty
+                return None
+
+            if (algorithm == "FCFS"):
+                ...
+                return ...
+            elif (algorithm == "SJF"):
+                ...
+                return ...
+            elif (algorithm == "SRTF"):
+                ...
+                return ...
+            ...
+
+
+
+    system_state = ckeck_system_state()    # what's the system state ("CS_LOAD", "CS_SAVE", "CPU_BURST", "IDLE")
+            
+    based on the state(state):
+        
+        if state == "CS_LOAD":
+            dispatcher("CS_LOAD"):
+                # doing context switch (load)
+                
+                cs_load += 1    # this get's incremented in every loop untill the previous fuctions (green and yellow) change system state or the process of Contect switch loading is finished and then system state changes to "CPU_BURST" 
+
+                
+        elif state == "CS_SAVE"
+            ...
+        ...
+
+
+
+
+
+
+
+
