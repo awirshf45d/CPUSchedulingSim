@@ -387,7 +387,7 @@ class CPUScheduler:
 
 
 
-input_list: InputList = [[1, 6], [8, 5], [0.10000, 2], [17.51, 3]] # [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ] 
+input_list: InputList = [ [1, 6], [80000, 50000], [102500, 20000], [175000, 30000] ] 
 input_quantum_time: float = 3
 input_cs_time: float = 1
 
