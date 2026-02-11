@@ -1,56 +1,66 @@
 import bpy
 import math
 
-
+InputList = [ [1, 6], [80000, 50000], [102500, 20000], [175000, 30000] ] 
+input_quantum_time: float = 3
+input_cs_time: float = 1
 
 
 # ------------------------------------------------------------------
 # IMPORTANT !! : blender has it's own path specifying format as bellow that uses "/" and "//" at the beggining of a relative path.
 # ------------------------------------------------------------------
 
-# specify to your font path
-font_path = r"//Fonts/JustAnotherHand-Regular.ttf"
 
-# load the font file
-font = bpy.data.fonts.load(font_path)
+# Scene preperations like loading the fonts, ...
+def preperations():
+    # specify to your font path
+    font_path = r"//Fonts/JustAnotherHand-Regular.ttf"
 
-
-
-
-
-
-text_content = "some text for a fuckin test yeah"
-
-# Create font curve data
-font_curve = bpy.data.curves.new(name=text_content, type='FONT')
-font_curve.body = text_content
-font_curve.font = font
+    # load the font file
+    font = bpy.data.fonts.load(font_path)
 
 
-# # You can also set bold/italic fonts if needed:
-# font_curve.font_bold = font
-# font_curve.font_italic = font
-# font_curve.font_bold_italic = font
 
 
-# Create object using the curve data
-text_obj = bpy.data.objects.new(name=text_content, object_data=font_curve)
-
-# Link object to scene
-bpy.context.collection.objects.link(text_obj)
 
 
-# Set transforms (location, rotation, scale)
-text_obj.location = (1.0, 2.0, 3.0)    # location
-text_obj.rotation_euler = tuple(map(math.radians, (0, 0, 45)))
-text_obj.scale = (2.0, 2.0, 2.0)    # scale
 
 
-# # Optional: set text size, alignment, etc.
-# # These are font properties, not object transforms.
-# font_curve.size = 1.5
-# font_curve.align_x = 'CENTER'
-# font_curve.align_y = 'CENTER'
+
+
+
+pNum = len(InputList)    # the total number of processes we have in our simulation:
+print(pNum)
+# pid = 0
+# y_cordinate = -4
+
+# for p in range(pNum):
+
+#     text_content = f"p{pid}"
+
+#     # Create font curve data
+#     font_curve = bpy.data.curves.new(name=text_content, type='FONT')
+#     font_curve.body = text_content
+#     font_curve.font = font
+
+#     # Create object using the curve data
+#     text_obj = bpy.data.objects.new(name=text_content, object_data=font_curve)
+
+#     # Link object to scene
+#     bpy.context.collection.objects.link(text_obj)
+
+
+#     # Set transforms (location, rotation, scale)
+#     text_obj.location = (1.4, y_cordinate, 0)    # location (in meters)
+#     text_obj.rotation_euler = tuple(map(math.radians, (0, 0, 0)))    # rotation (in degrees)
+#     text_obj.scale = (0.5, 0.5, 0.5)    # scale
+
+
+
+#     pid += 1
+#     y_cordinate += 0.5
+
+
 
 
 
