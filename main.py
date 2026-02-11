@@ -1,14 +1,12 @@
 from typing import Literal, Union, List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 from definitions import (
-    TICK, CURRENT_TIME,
+    TICK, TIME_SCALE,
     SimulationLog, SystemState, SchedulerMode, EventType,
     Process, Job, ProcessState, ProcessCategory,
     InputList, validate_input_and_determine_scheduler_mode, scale_input_time,
     QueueLevel, JobPool, STSAlgo, LTSAlgo
 )
-
-# --- Logging Data Structure ---
 
 @dataclass
 class Scheduler:
@@ -18,38 +16,57 @@ class Scheduler:
     q: int
     mode: SchedulerMode
     logs: List[SimulationLog] = field(init=False, default_factory=list)
+    current_time: int = 0 # in tick
     def __post_init__(self) -> None:
         """
         Initializes the scheduler
         """
-        self.half_cs = self.cs/2
+        self.half_cs: int = self.cs/2 
         self.input_data_list.sort(key=lambda x: x[0]) # sorted based on the at
-
+        self.all_algorithms = {
+            # Non-preemptive
+            "FCFS": self.FCFS,
+            "SPN": self.SPN,
+            "HRRN": self.HRRN,
+            "SRTF": self.SRTF,
+            # Preemptive
+            "RR": self.RR,
+            "MLQ": self.MLQ,
+            "MLFQ": self.MLFQ,
+            # Job
+            "SJF":  self.SJF,
+            "FIFO":   self.FIFO,
+            "Random":   self.Random
+        }
         # self.in_switch = False
         # self.switch_phase = None  # "save" or "load"
         # self.switch_remaining = 0  # Incremented each tick during CS
         # self.outgoing_process = None  # For save phase
 
-    def run(self) -> None:
+    def run(self, algo: Union[LTSAlgo,STSAlgo, None]) -> None:
         """
         Main driver: runs specific algorithms based on the detected SchedulerMode.
         """
-        algorithms = []
-        if self.mode is SchedulerMode.PROCESS:
-            algorithms = ["FCFS", "SPN", "HRRN", "RR", "SRTF", "MLFQ"]
-        elif self.mode is SchedulerMode.MLQ:
-            algorithms = ["MLQ"]
-        elif self.mode is SchedulerMode.JOB:
-            algorithms = ["FIFO", "SJF", "Random"]
-        
-        for algo in algorithms:
-            self._run_single_algorithm(algo)
+        if algo is None:
+            algorithms = []
+            if self.mode is SchedulerMode.PROCESS:
+                algorithms = ["FCFS", "SPN", "HRRN", "RR", "SRTF", "MLFQ"]
+            elif self.mode is SchedulerMode.MLQ:
+                algorithms = ["MLQ"]
+            elif self.mode is SchedulerMode.JOB:
+                algorithms = ["FIFO", "SJF", "Random"]
+            for algo in algorithms:
+                self.all_algorithms[algo]() # Clean dynamic call
+        else:
+            self.all_algorithms[algo]() # Clean dynamic call
 
         self.generate_gantt_and_metrics()
-    
-    def _run_single_algorithm(self, algorithm:Union[STSAlgo,LTSAlgo]):
-        print(f"Running Algorithm: {algorithm}...")
-        
+        print("\n\n")
+        print(self.logs)
+
+    # ===== PROCESS scheduling =====
+    def FCFS(self):
+        print(f"Running Algorithm: FCFS...")
         # --- Initialization ---
         self._reset_simulation_objects()
         system_state = SystemState.IDLE
@@ -65,724 +82,141 @@ class Scheduler:
         completed_count = 0
         total_data_items = len(self.input_data_list)
         
-        
-        if self.mode is SchedulerMode.JOB:
-            job_pool = JobPool(algo=algorithm, pool=[])
-            while completed_count < total_data_items:
-                
-                # 1. Handle Arrivals
-                while next_arrival_idx < total_data_items:
-                    proc = processes[next_arrival_idx]
-                    if proc.arrival_time <= current_time:
-                        proc.state = ProcessState.READY
-                        ready_queue.append(proc)
-                        next_arrival_idx += 1
-                    else:
-                        break
-                
-                # 2. Check Preemption (Only if EXECUTING)
-                # According to backbone: "If system_state == EXECUTING... check_preemption"
-                if system_state == SystemState.EXECUTING and current_process:
-                    if self._check_preemption(algorithm, current_process, ready_queue, current_quantum_counter):
-                        # Preemption Triggered
-                        self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "EXECUTING")
-                        segment_start_time = current_time
-                        
-                        outgoing_process = current_process
-                        current_process = None
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_SAVE
-                            cs_progress = 0
-                        else:
-                            # Instant Switch
-                            outgoing_process.state = ProcessState.READY
-                            ready_queue.append(outgoing_process)
-                            outgoing_process = None
-                            system_state = SystemState.IDLE
-                
-                # 3. Update Waiting Metrics
-                # Increment wait time for everyone in ready queue
-                for p in ready_queue:
-                    p.wait_time += TICK
-                    
-                # 4. Handle State Machine
-                
-                if system_state == SystemState.CS_LOAD:
-                    cs_progress += TICK
-                    
-                    # Check Abort (Preemption during Load)
-                    # Backbone: "If algo allows aborts and check_preemption... Log aborted... Return incoming to queue"
-                    # Note: 'current_process' here is the one *being loaded*.
-                    if self._is_preemptive(algorithm) and current_process:
-                        # We check if there is a BETTER process than the one we are loading
-                        # Note: We must temporarily put current_process in queue to compare, or compare directly
-                        best_candidate = self._peek_next_process(algorithm, ready_queue, current_time)
-                        
-                        should_abort = False
-                        if best_candidate and algorithm == "SRTF":
-                            if best_candidate.remaining_time < current_process.remaining_time:
-                                should_abort = True
-                        elif best_candidate and algorithm == "RR":
-                            pass # RR usually doesn't abort CS for arrival, only quantum expiry
-                            
-                        if should_abort:
-                            self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "CS_ABORT")
-                            segment_start_time = current_time
-                            
-                            # Return 'incoming' to queue
-                            current_process.state = ProcessState.READY
-                            ready_queue.append(current_process)
-                            current_process = None
-                            
-                            system_state = SystemState.IDLE
-                            cs_progress = 0
-                            continue # Skip to next tick
-
-                    if cs_progress >= self.half_cs_scaled:
-                        # Load Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "CS_LOAD")
-                        segment_start_time = current_time + TICK
-                        
-                        system_state = SystemState.EXECUTING
-                        current_process.state = ProcessState.RUNNING
-                        current_quantum_counter = 0
-                        
-                        # First run metrics
-                        if current_process.start_time == -1:
-                            current_process.start_time = current_time + TICK
-                            current_process.response_time = current_process.start_time - current_process.arrival_time
-                            
-                elif system_state == SystemState.CS_SAVE:
-                    cs_progress += TICK
-                    
-                    # Check Abort (Preemption during Save)
-                    # Backbone: "If algo allows aborts and check_preemption on outgoing... Resume outgoing"
-                    # This implies: If the reason we preempted (e.g. a short job arrived) is no longer valid?
-                    # Or if the outgoing process becomes the best choice again?
-                    # This is rare in standard algos but possible in complex priority shifts.
-                    # We skip complex save-abort for standard algorithms to keep it stable, unless explicitly needed.
-                    
-                    if cs_progress >= self.half_cs_scaled:
-                        # Save Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, outgoing_process.pid, "CS_SAVE")
-                        segment_start_time = current_time + TICK
-                        
-                        # Logic: If outgoing has remaining > 0, back to ready. Else Terminated.
-                        if outgoing_process.remaining_time > 0:
-                            outgoing_process.state = ProcessState.READY
-                            ready_queue.append(outgoing_process)
-                        else:
-                            outgoing_process.state = ProcessState.TERMINATED
-                            # Completion metrics handled when it hit 0 remaining time
-                        
-                        outgoing_process = None
-                        system_state = SystemState.CS_LOAD
-                        cs_progress = 0
-                        
-                elif system_state == SystemState.EXECUTING:
-                    current_process.remaining_time -= TICK
-                    current_quantum_counter += TICK
-                    
-                    if current_process.remaining_time <= 0:
-                        # Burst Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "EXECUTING")
-                        segment_start_time = current_time + TICK
-                        
-                        current_process.completion_time = current_time + TICK
-                        current_process.turnaround_time = current_process.completion_time - current_process.arrival_time
-                        # Wait time is calculated incrementally in step 3, but formula is safer:
-                        # wt = tat - burst. We can reconcile later.
-                        
-                        current_process.state = ProcessState.TERMINATED
-                        completed_count += 1
-                        
-                        outgoing_process = current_process
-                        current_process = None
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_SAVE
-                            cs_progress = 0
-                        else:
-                            system_state = SystemState.IDLE
-                            
-                elif system_state == SystemState.IDLE:
-                    # Try to pick next process
-                    candidate = self._select_next_process(algorithm, ready_queue, current_time)
-                    
-                    if candidate:
-                        # Log IDLE time if we were waiting
-                        if current_time > segment_start_time:
-                            self._add_log(algorithm, segment_start_time, current_time, None, "IDLE")
-                            segment_start_time = current_time
-                        
-                        current_process = candidate # Removed from queue by _select_next_process
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_LOAD
-                            cs_progress = 0
-                        else:
-                            system_state = SystemState.EXECUTING
-                            current_process.state = ProcessState.RUNNING
-                            current_quantum_counter = 0
-                            if current_process.start_time == -1:
-                                current_process.start_time = current_time
-                                current_process.response_time = current_process.start_time - current_process.arrival_time
-                
-                # 5. Advance Time
-                current_time += TICK
-                
-                # 6. Safety Break
-                if system_state is SystemState.IDLE and not ready_queue and next_arrival_idx == total_data_items and current_process is None:
-                    # End of simulation
+        # ready queue
+        ready_queue: List[QueueLevel] = [
+            QueueLevel(
+                q=None, # Preemptive logic
+                algo="FCFS",
+                queue=[]
+            )
+        ]
+        while completed_count <= total_data_items:
+            # 1. Handle Arrivals.
+            
+            while next_arrival_idx < total_data_items:
+                proc = self.processes[next_arrival_idx]
+                if proc.arrival_time <= self.current_time:
+                    proc.state = ProcessState.READY
+                    # add to ready queue
+                    ready_queue[0].queue.append(proc)
+                    ready_queue[0].new_event_occurred = True
+                    proc.process_ready_queue_id = 0
+                    next_arrival_idx += 1
+                    self._add_log(algo="FCFS", start_time=self.current_time, end_time=self.current_time, id=proc.pid, event_type=EventType.PROCESS_ARRIVAL.value)
+                else:
                     break
-                    
-            # Close final log
-            if segment_start_time < current_time:
-                pass # Optional: log final idle or state
-        elif self.mode is SchedulerMode.PROCESS:            
-            ready_queue: List[QueueLevel] = [
-                QueueLevel(
-                    q=self.q if algorithm in ["RR", "SRTF", "MLFQ"] else None, # Preemptive logic
-                    algo=algorithm
-                )
-            ] # len(ready_queue) must be equal to 1, edit: for MLFQ at first this value is 0 as well.
-            while completed_count < total_data_items:
-                
-                # 1. Handle Arrivals.
-                while next_arrival_idx < total_data_items:
-                    proc = self.processes[next_arrival_idx]
-                    if proc.arrival_time <= current_time:
-                        proc.state = ProcessState.READY
-                        # add to ready queue
-                        ready_queue[0].queue.append(proc)
-                        ready_queue[0].new_event_occurred = True
-                        proc.process_ready_queue_id = 0
-                        next_arrival_idx += 1
-                        # log
-                        self._add_log(algorithm, CURRENT_TIME, proc.pid, EventType.PROCESS_ARRIVAL.value)
-                    else:
-                        break
-                
-                # 2. Check Preemption (Only if an event occurred), only if system executing
-                if (
-                    (current_process and system_state is SystemState.EXECUTING) # quantum time expired? 
-                    or any(sub_queue.new_event_occurred for sub_queue in ready_queue) # higher priority process arrived?
-                ):
-                    if self._check_preemption(current_process, ready_queue, current_quantum_counter, system_state):
-                        # Preemption Triggered
-                        self._add_log(algorithm, CURRENT_TIME, current_process.pid, "EXECUTING")
-                        segment_start_time = current_time
-                        
-                        outgoing_process = current_process
-                        current_process = None
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_SAVE
-                            cs_progress = 0
-                        else:
-                            # Instant Switch
-                            outgoing_process.state = ProcessState.READY
-                            ready_queue.append(outgoing_process)
-                            outgoing_process = None
-                            system_state = SystemState.IDLE
-                    
-                    for sub_queue in ready_queue:
-                        sub_queue.new_event_occurred = False
-                    
-                
-                # 3. Update Waiting Metrics
-                # Increment wait time for everyone in ready queue
-                for p in ready_queue:
-                    p.wait_time += TICK
-                    
-                # 4. Handle State Machine
-                
-                if system_state == SystemState.CS_LOAD:
-                    cs_progress += TICK
-                    
-                    # Check Abort (Preemption during Load)
-                    # Backbone: "If algo allows aborts and check_preemption... Log aborted... Return incoming to queue"
-                    # Note: 'current_process' here is the one *being loaded*.
-                    if self._is_preemptive(algorithm) and current_process:
-                        # We check if there is a BETTER process than the one we are loading
-                        # Note: We must temporarily put current_process in queue to compare, or compare directly
-                        best_candidate = self._peek_next_process(algorithm, ready_queue, current_time)
-                        
-                        should_abort = False
-                        if best_candidate and algorithm == "SRTF":
-                            if best_candidate.remaining_time < current_process.remaining_time:
-                                should_abort = True
-                        elif best_candidate and algorithm == "RR":
-                            pass # RR usually doesn't abort CS for arrival, only quantum expiry
-                            
-                        if should_abort:
-                            self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "CS_ABORT")
-                            segment_start_time = current_time
-                            
-                            # Return 'incoming' to queue
-                            current_process.state = ProcessState.READY
-                            ready_queue.append(current_process)
-                            current_process = None
-                            
-                            system_state = SystemState.IDLE
-                            cs_progress = 0
-                            continue # Skip to next tick
+            
 
-                    if cs_progress >= self.half_cs_scaled:
-                        # Load Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "CS_LOAD")
-                        segment_start_time = current_time + TICK
-                        
-                        system_state = SystemState.EXECUTING
-                        current_process.state = ProcessState.RUNNING
-                        current_quantum_counter = 0
-                        
-                        # First run metrics
-                        if current_process.start_time == -1:
-                            current_process.start_time = current_time + TICK
-                            current_process.response_time = current_process.start_time - current_process.arrival_time
-                            
-                elif system_state == SystemState.CS_SAVE:
-                    cs_progress += TICK
-                    
-                    # Check Abort (Preemption during Save)
-                    # Backbone: "If algo allows aborts and check_preemption on outgoing... Resume outgoing"
-                    # This implies: If the reason we preempted (e.g. a short job arrived) is no longer valid?
-                    # Or if the outgoing process becomes the best choice again?
-                    # This is rare in standard algos but possible in complex priority shifts.
-                    # We skip complex save-abort for standard algorithms to keep it stable, unless explicitly needed.
-                    
-                    if cs_progress >= self.half_cs_scaled:
-                        # Save Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, outgoing_process.pid, "CS_SAVE")
-                        segment_start_time = current_time + TICK
-                        
-                        # Logic: If outgoing has remaining > 0, back to ready. Else Terminated.
-                        if outgoing_process.remaining_time > 0:
-                            outgoing_process.state = ProcessState.READY
-                            ready_queue.append(outgoing_process)
-                        else:
-                            outgoing_process.state = ProcessState.TERMINATED
-                            # Completion metrics handled when it hit 0 remaining time
-                        
-                        outgoing_process = None
-                        system_state = SystemState.CS_LOAD
-                        cs_progress = 0
-                        
-                elif system_state == SystemState.EXECUTING:
-                    current_process.remaining_time -= TICK
-                    current_quantum_counter += TICK
-                    
-                    if current_process.remaining_time <= 0:
-                        # Burst Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "EXECUTING")
-                        segment_start_time = current_time + TICK
-                        
-                        current_process.completion_time = current_time + TICK
-                        current_process.turnaround_time = current_process.completion_time - current_process.arrival_time
-                        # Wait time is calculated incrementally in step 3, but formula is safer:
-                        # wt = tat - burst. We can reconcile later.
-                        
-                        current_process.state = ProcessState.TERMINATED
-                        completed_count += 1
-                        
-                        outgoing_process = current_process
-                        current_process = None
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_SAVE
-                            cs_progress = 0
-                        else:
-                            system_state = SystemState.IDLE
-                            
-                elif system_state == SystemState.IDLE:
-                    # Try to pick next process
-                    candidate = self._select_next_process(algorithm, ready_queue, current_time)
-                    
-                    if candidate:
-                        # Log IDLE time if we were waiting
-                        if current_time > segment_start_time:
-                            self._add_log(algorithm, segment_start_time, current_time, None, "IDLE")
-                            segment_start_time = current_time
-                        
-                        current_process = candidate # Removed from queue by _select_next_process
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_LOAD
-                            cs_progress = 0
-                        else:
-                            system_state = SystemState.EXECUTING
-                            current_process.state = ProcessState.RUNNING
-                            current_quantum_counter = 0
-                            if current_process.start_time == -1:
-                                current_process.start_time = current_time
-                                current_process.response_time = current_process.start_time - current_process.arrival_time
+            if system_state == SystemState.CS_LOAD:
+                cs_progress += TICK
                 
-                # 5. Advance Time
-                current_time += TICK
-                
-                # 6. Safety Break
-                if system_state is SystemState.IDLE and not ready_queue and next_arrival_idx == total_data_items and current_process is None:
-                    # End of simulation
-                    break
-                    
-            # Close final log
-            if segment_start_time < current_time:
-                pass # Optional: log final idle or state
-        else: # MLQ
-            # For MLQ we would map categories to queues.
-            multilevel_ready_queue: List[QueueLevel] = [
-                QueueLevel(category=ProcessCategory.REAL_TIME, q=self.q, algo="RR", queue=[]),
-                QueueLevel(category=ProcessCategory.SYSTEM, q=self.q, algo="SRTF", queue=[]),
-                QueueLevel(category=ProcessCategory.INTERACTIVE, q=self.q, algo="RR", queue=[]),
-                QueueLevel(category=ProcessCategory.BATCH, q=None, algo="FCFS", queue=[])
-            ]
-            while completed_count < total_data_items:
-            
-                # 1. Handle Arrivals
-                while next_arrival_idx < total_data_items:
-                    proc = processes[next_arrival_idx]
-                    if proc.arrival_time <= current_time:
-                        proc.state = ProcessState.READY
-                        ready_queue.append(proc)
-                        next_arrival_idx += 1
-                    else:
-                        break
-                
-                # 2. Check Preemption (Only if EXECUTING)
-                # According to backbone: "If system_state == EXECUTING... check_preemption"
-                if system_state == SystemState.EXECUTING and current_process:
-                    if self._check_preemption(algorithm, current_process, ready_queue, current_quantum_counter):
-                        # Preemption Triggered
-                        self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "EXECUTING")
-                        segment_start_time = current_time
-                        
-                        outgoing_process = current_process
-                        current_process = None
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_SAVE
-                            cs_progress = 0
-                        else:
-                            # Instant Switch
-                            outgoing_process.state = ProcessState.READY
-                            ready_queue.append(outgoing_process)
-                            outgoing_process = None
-                            system_state = SystemState.IDLE
-                
-                # 3. Update Waiting Metrics
-                # Increment wait time for everyone in ready queue
-                for p in ready_queue:
-                    p.wait_time += TICK
-                    
-                # 4. Handle State Machine
-                
-                if system_state == SystemState.CS_LOAD:
-                    cs_progress += TICK
-                    
-                    # Check Abort (Preemption during Load)
-                    # Backbone: "If algo allows aborts and check_preemption... Log aborted... Return incoming to queue"
-                    # Note: 'current_process' here is the one *being loaded*.
-                    if self._is_preemptive(algorithm) and current_process:
-                        # We check if there is a BETTER process than the one we are loading
-                        # Note: We must temporarily put current_process in queue to compare, or compare directly
-                        best_candidate = self._peek_next_process(algorithm, ready_queue, current_time)
-                        
-                        should_abort = False
-                        if best_candidate and algorithm == "SRTF":
-                            if best_candidate.remaining_time < current_process.remaining_time:
-                                should_abort = True
-                        elif best_candidate and algorithm == "RR":
-                            pass # RR usually doesn't abort CS for arrival, only quantum expiry
-                            
-                        if should_abort:
-                            self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "CS_ABORT")
-                            segment_start_time = current_time
-                            
-                            # Return 'incoming' to queue
-                            current_process.state = ProcessState.READY
-                            ready_queue.append(current_process)
-                            current_process = None
-                            
-                            system_state = SystemState.IDLE
-                            cs_progress = 0
-                            continue # Skip to next tick
+                # Check Abort (Preemption during Load)                    
+                # We check if there is a BETTER process than the one we are loading, but since FCFS likes those who arrived earlier, the best candidate already chosen! 
 
-                    if cs_progress >= self.half_cs_scaled:
-                        # Load Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "CS_LOAD")
-                        segment_start_time = current_time + TICK
-                        
-                        system_state = SystemState.EXECUTING
-                        current_process.state = ProcessState.RUNNING
-                        current_quantum_counter = 0
-                        
-                        # First run metrics
-                        if current_process.start_time == -1:
-                            current_process.start_time = current_time + TICK
-                            current_process.response_time = current_process.start_time - current_process.arrival_time
-                            
-                elif system_state == SystemState.CS_SAVE:
-                    cs_progress += TICK
+                if cs_progress >= self.half_cs:
+                    # Load Complete
+                    self._add_log("FCFS", segment_start_time, self.current_time + TICK, current_process.pid, "CS_LOAD")
+                    segment_start_time = self.current_time + TICK
                     
-                    # Check Abort (Preemption during Save)
-                    # Backbone: "If algo allows aborts and check_preemption on outgoing... Resume outgoing"
-                    # This implies: If the reason we preempted (e.g. a short job arrived) is no longer valid?
-                    # Or if the outgoing process becomes the best choice again?
-                    # This is rare in standard algos but possible in complex priority shifts.
-                    # We skip complex save-abort for standard algorithms to keep it stable, unless explicitly needed.
+                    system_state = SystemState.EXECUTING
+                    current_process.state = ProcessState.RUNNING
+                    current_quantum_counter = 0
+                    cs_progress = 0
                     
-                    if cs_progress >= self.half_cs_scaled:
-                        # Save Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, outgoing_process.pid, "CS_SAVE")
-                        segment_start_time = current_time + TICK
+                    # First run metrics
+                    if current_process.start_time == -1:
+                        current_process.start_time = self.current_time + TICK
+                        current_process.response_time = current_process.start_time - current_process.arrival_time
+                        current_process.wait_time = current_process.response_time # non-preemptive WT=RT
                         
-                        # Logic: If outgoing has remaining > 0, back to ready. Else Terminated.
-                        if outgoing_process.remaining_time > 0:
-                            outgoing_process.state = ProcessState.READY
-                            ready_queue.append(outgoing_process)
-                        else:
-                            outgoing_process.state = ProcessState.TERMINATED
-                            # Completion metrics handled when it hit 0 remaining time
-                        
-                        outgoing_process = None
-                        system_state = SystemState.CS_LOAD
-                        cs_progress = 0
-                        
-                elif system_state == SystemState.EXECUTING:
-                    current_process.remaining_time -= TICK
-                    current_quantum_counter += TICK
-                    
-                    if current_process.remaining_time <= 0:
-                        # Burst Complete
-                        self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "EXECUTING")
-                        segment_start_time = current_time + TICK
-                        
-                        current_process.completion_time = current_time + TICK
-                        current_process.turnaround_time = current_process.completion_time - current_process.arrival_time
-                        # Wait time is calculated incrementally in step 3, but formula is safer:
-                        # wt = tat - burst. We can reconcile later.
-                        
-                        current_process.state = ProcessState.TERMINATED
-                        completed_count += 1
-                        
-                        outgoing_process = current_process
-                        current_process = None
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_SAVE
-                            cs_progress = 0
-                        else:
-                            system_state = SystemState.IDLE
-                            
-                elif system_state == SystemState.IDLE:
-                    # Try to pick next process
-                    candidate = self._select_next_process(algorithm, ready_queue, current_time)
-                    
-                    if candidate:
-                        # Log IDLE time if we were waiting
-                        if current_time > segment_start_time:
-                            self._add_log(algorithm, segment_start_time, current_time, None, "IDLE")
-                            segment_start_time = current_time
-                        
-                        current_process = candidate # Removed from queue by _select_next_process
-                        
-                        if self.cs_scaled > 0:
-                            system_state = SystemState.CS_LOAD
-                            cs_progress = 0
-                        else:
-                            system_state = SystemState.EXECUTING
-                            current_process.state = ProcessState.RUNNING
-                            current_quantum_counter = 0
-                            if current_process.start_time == -1:
-                                current_process.start_time = current_time
-                                current_process.response_time = current_process.start_time - current_process.arrival_time
+            elif system_state == SystemState.CS_SAVE:
+                cs_progress += TICK
                 
-                # 5. Advance Time
-                current_time += TICK
+                if cs_progress >= self.half_cs:
+                    # Save Complete
+                    self._add_log("FCFS", segment_start_time, self.current_time + TICK, outgoing_process.pid, "CS_SAVE")
+                    segment_start_time = self.current_time + TICK
+                    if outgoing_process.state is ProcessState.TERMINATED:
+                        outgoing_process.completion_time = self.current_time + TICK
+                        outgoing_process.turnaround_time = outgoing_process.completion_time - outgoing_process.arrival_time
+                        # Wait time = Response time, already set.
+                    
+                    outgoing_process = None
+                    cs_progress = 0
+                    # Here we need to do something so in the next loop, we're gonna select the next candidate!
+                    system_state = SystemState.IDLE           
+            elif system_state is SystemState.EXECUTING:
+                current_process.remaining_time -= TICK
+                current_quantum_counter += TICK
                 
-                # 6. Safety Break
-                if system_state is SystemState.IDLE and not ready_queue and next_arrival_idx == total_data_items and current_process is None:
-                    # End of simulation
-                    break
+                if current_process.remaining_time <= 0: # terminated
+                    # Burst Complete
+                    self._add_log("FCFS", segment_start_time, self.current_time + TICK, current_process.pid, "EXECUTING")
+                    segment_start_time = self.current_time + TICK
                     
-            # Close final log
-            if segment_start_time < current_time:
-                pass # Optional: log final idle or state
-        
-        # while completed_count < total_data_items:
-            
-        #     # 1. Handle Arrivals
-        #     while next_arrival_idx < total_data_items:
-        #         proc = processes[next_arrival_idx]
-        #         if proc.arrival_time <= current_time:
-        #             proc.state = ProcessState.READY
-        #             ready_queue.append(proc)
-        #             next_arrival_idx += 1
-        #         else:
-        #             break
-            
-        #     # 2. Check Preemption (Only if EXECUTING)
-        #     # According to backbone: "If system_state == EXECUTING... check_preemption"
-        #     if system_state == SystemState.EXECUTING and current_process:
-        #         if self._check_preemption(algorithm, current_process, ready_queue, current_quantum_counter):
-        #             # Preemption Triggered
-        #             self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "EXECUTING")
-        #             segment_start_time = current_time
+                    current_process.state = ProcessState.TERMINATED
+                    completed_count += 1
                     
-        #             outgoing_process = current_process
-        #             current_process = None
+                    outgoing_process = current_process
+                    current_process = None
                     
-        #             if self.cs_scaled > 0:
-        #                 system_state = SystemState.CS_SAVE
-        #                 cs_progress = 0
-        #             else:
-        #                 # Instant Switch
-        #                 outgoing_process.state = ProcessState.READY
-        #                 ready_queue.append(outgoing_process)
-        #                 outgoing_process = None
-        #                 system_state = SystemState.IDLE
-            
-        #     # 3. Update Waiting Metrics
-        #     # Increment wait time for everyone in ready queue
-        #     for p in ready_queue:
-        #         p.wait_time += TICK
-                
-        #     # 4. Handle State Machine
-            
-        #     if system_state == SystemState.CS_LOAD:
-        #         cs_progress += TICK
-                
-        #         # Check Abort (Preemption during Load)
-        #         # Backbone: "If algo allows aborts and check_preemption... Log aborted... Return incoming to queue"
-        #         # Note: 'current_process' here is the one *being loaded*.
-        #         if self._is_preemptive(algorithm) and current_process:
-        #             # We check if there is a BETTER process than the one we are loading
-        #             # Note: We must temporarily put current_process in queue to compare, or compare directly
-        #             best_candidate = self._peek_next_process(algorithm, ready_queue, current_time)
+                    system_state = SystemState.CS_SAVE
+                    cs_progress = 0                 
+            elif system_state is SystemState.IDLE:            
+                candidate: Process = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue.pop(0) # since input data is already sorted based on at
+                if candidate:
+                    # Log IDLE time if we were waiting
+                    if self.current_time > segment_start_time:
+                        self._add_log("FCFS", segment_start_time, self.current_time, None, "IDLE")
+                        segment_start_time = self.current_time
                     
-        #             should_abort = False
-        #             if best_candidate and algorithm == "SRTF":
-        #                 if best_candidate.remaining_time < current_process.remaining_time:
-        #                     should_abort = True
-        #             elif best_candidate and algorithm == "RR":
-        #                 pass # RR usually doesn't abort CS for arrival, only quantum expiry
-                        
-        #             if should_abort:
-        #                 self._add_log(algorithm, segment_start_time, current_time, current_process.pid, "CS_ABORT")
-        #                 segment_start_time = current_time
-                        
-        #                 # Return 'incoming' to queue
-        #                 current_process.state = ProcessState.READY
-        #                 ready_queue.append(current_process)
-        #                 current_process = None
-                        
-        #                 system_state = SystemState.IDLE
-        #                 cs_progress = 0
-        #                 continue # Skip to next tick
+                    current_process = candidate # Removed from queue
+                    ready_queue[0].new_event_occurred = False # why? the best candidate is already chosen.
 
-        #         if cs_progress >= self.half_cs_scaled:
-        #             # Load Complete
-        #             self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "CS_LOAD")
-        #             segment_start_time = current_time + TICK
+                    system_state = SystemState.CS_LOAD
+                    cs_progress = 0
+
                     
-        #             system_state = SystemState.EXECUTING
-        #             current_process.state = ProcessState.RUNNING
-        #             current_quantum_counter = 0
-                    
-        #             # First run metrics
-        #             if current_process.start_time == -1:
-        #                 current_process.start_time = current_time + TICK
-        #                 current_process.response_time = current_process.start_time - current_process.arrival_time
-                        
-        #     elif system_state == SystemState.CS_SAVE:
-        #         cs_progress += TICK
-                
-        #         # Check Abort (Preemption during Save)
-        #         # Backbone: "If algo allows aborts and check_preemption on outgoing... Resume outgoing"
-        #         # This implies: If the reason we preempted (e.g. a short job arrived) is no longer valid?
-        #         # Or if the outgoing process becomes the best choice again?
-        #         # This is rare in standard algos but possible in complex priority shifts.
-        #         # We skip complex save-abort for standard algorithms to keep it stable, unless explicitly needed.
-                
-        #         if cs_progress >= self.half_cs_scaled:
-        #             # Save Complete
-        #             self._add_log(algorithm, segment_start_time, current_time + TICK, outgoing_process.pid, "CS_SAVE")
-        #             segment_start_time = current_time + TICK
-                    
-        #             # Logic: If outgoing has remaining > 0, back to ready. Else Terminated.
-        #             if outgoing_process.remaining_time > 0:
-        #                 outgoing_process.state = ProcessState.READY
-        #                 ready_queue.append(outgoing_process)
-        #             else:
-        #                 outgoing_process.state = ProcessState.TERMINATED
-        #                 # Completion metrics handled when it hit 0 remaining time
-                    
-        #             outgoing_process = None
-        #             system_state = SystemState.CS_LOAD
-        #             cs_progress = 0
-                    
-        #     elif system_state == SystemState.EXECUTING:
-        #         current_process.remaining_time -= TICK
-        #         current_quantum_counter += TICK
-                
-        #         if current_process.remaining_time <= 0:
-        #             # Burst Complete
-        #             self._add_log(algorithm, segment_start_time, current_time + TICK, current_process.pid, "EXECUTING")
-        #             segment_start_time = current_time + TICK
-                    
-        #             current_process.completion_time = current_time + TICK
-        #             current_process.turnaround_time = current_process.completion_time - current_process.arrival_time
-        #             # Wait time is calculated incrementally in step 3, but formula is safer:
-        #             # wt = tat - burst. We can reconcile later.
-                    
-        #             current_process.state = ProcessState.TERMINATED
-        #             completed_count += 1
-                    
-        #             outgoing_process = current_process
-        #             current_process = None
-                    
-        #             if self.cs_scaled > 0:
-        #                 system_state = SystemState.CS_SAVE
-        #                 cs_progress = 0
-        #             else:
-        #                 system_state = SystemState.IDLE
-                        
-        #     elif system_state == SystemState.IDLE:
-        #         # Try to pick next process
-        #         candidate = self._select_next_process(algorithm, ready_queue, current_time)
-                
-        #         if candidate:
-        #             # Log IDLE time if we were waiting
-        #             if current_time > segment_start_time:
-        #                 self._add_log(algorithm, segment_start_time, current_time, None, "IDLE")
-        #                 segment_start_time = current_time
-                    
-        #             current_process = candidate # Removed from queue by _select_next_process
-                    
-        #             if self.cs_scaled > 0:
-        #                 system_state = SystemState.CS_LOAD
-        #                 cs_progress = 0
-        #             else:
-        #                 system_state = SystemState.EXECUTING
-        #                 current_process.state = ProcessState.RUNNING
-        #                 current_quantum_counter = 0
-        #                 if current_process.start_time == -1:
-        #                     current_process.start_time = current_time
-        #                     current_process.response_time = current_process.start_time - current_process.arrival_time
+                    continue # as soon as we have a process in the ready queue, we're gonna shift into other system states.       
+            # Advance Time
+            self.current_time += TICK
             
-        #     # 5. Advance Time
-        #     current_time += TICK
-            
-        #     # 6. Safety Break
-        #     if system_state is SystemState.IDLE and not ready_queue and next_arrival_idx == total_data_items and current_process is None:
-        #         # End of simulation
-        #         break
-                
-        # # Close final log
-        # if segment_start_time < current_time:
-        #      pass # Optional: log final idle or state
+            # Safety break
+            if (system_state == SystemState.IDLE and 
+                len(ready_queue[0].queue) == 0 and 
+                next_arrival_idx >= total_data_items and 
+                current_process is None and
+                outgoing_process is None):
+                break
+
+    def SPN(self):      # Shortest Process Next (non‑preemptive SJF)
+        pass
+
+    def HRRN(self):     # Highest Response Ratio Next
+        pass
+
+    def RR(self):       # Round Robin
+        pass
+
+    def SRTF(self):     # Shortest Remaining Time First
+        pass
+
+    def MLFQ(self):     # Multi‑Level Feedback Queue
+        pass
+
+    # ===== MLQ scheduling =====
+    def MLQ(self):
+        pass
+
+    # ===== JOB scheduling =====
+    def FIFO(self):
+        pass
+
+    def SJF(self):
+        pass
+
+    def Random(self):
+        pass
 
     # --- Helper Methods ---
     def _reset_simulation_objects(self) -> None:
@@ -792,7 +226,7 @@ class Scheduler:
             self.processes: List[Process] = []
             for i, (at, cbt) in enumerate(self.input_data_list):
                 self.processes.append(Process(pid=i, arrival_time=at, burst_time=cbt))
-        elif self.mode is SchedulerMode.JOB:
+        elif self.mode is SchedulerMode.JOB: 
             self.jobs: List[Job] = []
             for i, (at, cbt, m) in enumerate(self.input_data_list):
                 self.jobs.append(Job(jobId=i, arrival_time=at, burst_time=cbt, memory_needed_kb=m))
@@ -801,7 +235,7 @@ class Scheduler:
             for i, (at, cbt, cat) in enumerate(self.input_data_list):
                 self.processes.append(Process(pid=i, arrival_time=at, burst_time=cbt, category=cat))
         # reset time
-        CURRENT_TIME = 0
+        self.current_time = 0
 
 
     def _is_preemptive(self, algo: str) -> bool:
@@ -844,34 +278,12 @@ class Scheduler:
         
         return False
 
-    def _peek_next_process(self, algo: str, ready_queue: List[Process], current_time: int) -> Optional[Process]:
-        """ Inspects next process without removing it. """
-        if not ready_queue:
-            return None
-        
-        # Sort/Find based on algo
-        if algo in ["FCFS", "RR"]:
-            return ready_queue[0]
-        elif algo in ["SJF", "SRTF"]:
-            # Tie breaker: Arrival time
-            return min(ready_queue, key=lambda p: (p.remaining_time, p.arrival_time))
-        elif algo == "HRRN":
-            return self._get_hrrn_candidate(ready_queue, current_time)
-        return ready_queue[0]
-
-    def _select_next_process(self, algo: str, ready_queue: List[Process], current_time: int) -> Optional[Process]:
-        """ Selects and REMOVES next process from queue. """
-        candidate = self._peek_next_process(algo, ready_queue, current_time)
-        if candidate:
-            ready_queue.remove(candidate)
-        return candidate
-
-    def _get_hrrn_candidate(self, ready_queue: List[Process], current_time: int) -> Process:
+    def _get_hrrn_candidate(self, ready_queue: List[Process], current: int) -> Process:
         # R = (w + s) / s
         best = None
         max_ratio = -1.0
         for p in ready_queue:
-            wait = current_time - p.arrival_time - (p.burst_time - p.remaining_time)
+            wait = self.current_time - p.arrival_time - (p.burst_time - p.remaining_time)
             # Avoid div by zero if burst is 0 (shouldn't happen)
             ratio = (wait + p.burst_time) / p.burst_time if p.burst_time > 0 else 0
             if ratio > max_ratio:
@@ -879,117 +291,115 @@ class Scheduler:
                 best = p
         return best
 
-    def _add_log(self, algo: str, time: float, id: Optional[int], event_type: EventType):
-        self.logs.append(SimulationLog(algo, time, id, event_type))
+    def _add_log(self, algo: Union[LTSAlgo,STSAlgo], start_time: float, end_time: float, id: Optional[int], event_type: Union[SystemState,EventType]):
+        self.logs.append(SimulationLog(algo, start_time, end_time, id, event_type))
 
     def generate_gantt_and_metrics(self):
         """
-        Generates terminal-based Gantt chart and Metrics table.
+        Generates:
+        1. Metrics Table (Detailed statistics per process)
+        2. Sequential Event Log (Compact, debugging-focused timeline)
         """
-        # Get unique algorithms run
-        algos = sorted(list(set(l.algorithm for l in self.logs)))
         
-        for algo in algos:
-            algo_logs = [l for l in self.logs if l.algorithm == algo]
-            print(f"\n{'='*25} {algo} REPORT {'='*25}")
-            
-            # --- Metrics ---
-            # Reconstruct metrics from logs to ensure they match what happened
-            pids = set(l.pid for l in algo_logs if l.pid is not None)
-            metrics = {pid: {'at': 0, 'bt': 0, 'ct': 0, 'start': -1} for pid in pids}
-            
-            # Fill AT/BT from inputs
-            for pid in pids:
-                # Assuming raw inputs align with PIDs 0..N
-                if self.mode == SchedulerMode.PROCESS:
-                    metrics[pid]['at'] = self.input_data[pid][0]
-                    metrics[pid]['bt'] = self.input_data[pid][1]
-                else:
-                    metrics[pid]['at'] = self.input_data[pid][0]
-                    metrics[pid]['bt'] = self.input_data[pid][1]
+        # ==========================
+        # 1. METRICS TABLE
+        # ==========================
+        print(f"\n{'='*25} SIMULATION REPORT {'='*25}")
+        print(f"{'PID':<5} {'AT':<8} {'BT':<8} {'CT':<8} {'TAT':<8} {'WT':<8} {'RT':<8}")
+        print("-" * 65)
 
-            # Parse logs for Start/End times
-            for log in algo_logs:
-                if log.pid is not None:
-                    # Start Time: First time we see EXECUTING
-                    if log.system_state == "EXECUTING" or log.system_state == "CS_LOAD":
-                         # CS_LOAD implies preparation, EXECUTING implies running.
-                         # Response time is usually measured from Arrival to First Execution.
-                         if log.system_state == "EXECUTING" and metrics[log.pid]['start'] == -1:
-                             metrics[log.pid]['start'] = log.start_time / self.time_scale_factor
-                    
-                    # Completion Time: The end of the last EXECUTE/CS_SAVE block?
-                    # Safer: logic in run loop set CT. Here we infer max end time.
-                    if log.system_state == "EXECUTING":
-                        t_end = log.end_time / self.time_scale_factor
-                        if t_end > metrics[log.pid]['ct']:
-                            metrics[log.pid]['ct'] = t_end
+        total_tat, total_wt, total_rt = 0, 0, 0
+        sorted_processes = sorted(self.processes, key=lambda p: p.pid)
+        n = len(sorted_processes)
 
-            # Calculate Derived Metrics
-            total_tat, total_wt, total_rt = 0, 0, 0
-            count = len(pids)
+        for p in sorted_processes:
+            # Scale internal ticks back to user time units
+            at = p.arrival_time / TIME_SCALE
+            bt = p.burst_time / TIME_SCALE
             
-            print(f"{'PID':<5} {'AT':<8} {'BT':<8} {'CT':<8} {'TAT':<8} {'WT':<8} {'RT':<8}")
+            if p.completion_time == -1:
+                ct = tat = wt = rt = 0.0
+            else:
+                ct = p.completion_time / TIME_SCALE
+                tat = p.turnaround_time / TIME_SCALE
+                wt = p.wait_time / TIME_SCALE
+                rt = p.response_time / TIME_SCALE
+
+            total_tat += tat
+            total_wt += wt
+            total_rt += rt
+
+            print(f"{p.pid:<5} {at:<8.2f} {bt:<8.2f} {ct:<8.2f} {tat:<8.2f} {wt:<8.2f} {rt:<8.2f}")
+
+        if n > 0:
             print("-" * 65)
+            print(f"AVG  : {'-':<8} {'-':<8} {'-':<8} {total_tat/n:<8.2f} {total_wt/n:<8.2f} {total_rt/n:<8.2f}")
+
+
+        # ==========================
+        # 2. SEQUENTIAL EVENT LOG (DEBUG VIEW)
+        # ==========================
+        print("\n\n[ Event Sequence Debugger ]")
+        print("Format: EventType(Start-End)  |  '->' implies sequence order, not time gap.")
+        print("-" * 80)
+        
+        if not self.logs:
+            print("No logs available.")
+            return
+
+        # Helper to format time cleanly (e.g., 5.0 -> 5)
+        def fmt(t):
+            val = t / TIME_SCALE
+            return f"{val:.0f}" if val.is_integer() else f"{val:.2f}"
+
+        # 1. Collect all events per process
+        # We store tuples: (start_time, priority_order, string_label)
+        # priority_order ensures Arrival (0) appears before Execution (1) if they happen at same tick.
+        process_events = {p.pid: [] for p in self.processes}
+
+        # Add Arrivals
+        for p in self.processes:
+            label = f"AT({fmt(p.arrival_time)})"
+            # Priority 0: Arrivals come first
+            process_events[p.pid].append((p.arrival_time, 0, label))
+
+        # Add Simulation Logs
+        for log in self.logs:
+            if log.id is None: continue # Skip idle
+            if log.start_time == log.end_time: continue # Skip instantaneous system events
+
+            s_str = fmt(log.start_time)
+            e_str = fmt(log.end_time)
+
+            if log.event_type == 'EXECUTING':
+                lbl = f"Exec({s_str}-{e_str})"
+            elif 'CS_LOAD' in log.event_type:
+                lbl = f"Load({s_str}-{e_str})"
+            elif 'CS_SAVE' in log.event_type:
+                lbl = f"Save({s_str}-{e_str})"
+            else:
+                lbl = f"{log.event_type}({s_str}-{e_str})"
             
-            for pid in sorted(pids):
-                m = metrics[pid]
-                ct = m['ct']
-                at = m['at']
-                bt = m['bt']
-                start = m['start'] if m['start'] != -1 else at # Fallback
-                
-                tat = ct - at
-                wt = tat - bt
-                rt = start - at
-                
-                total_tat += tat; total_wt += wt; total_rt += rt
-                
-                print(f"{pid:<5} {at:<8.2f} {bt:<8.2f} {ct:<8.2f} {tat:<8.2f} {wt:<8.2f} {rt:<8.2f}")
+            # Priority 1: Regular events
+            process_events[log.id].append((log.start_time, 1, lbl))
+
+        # 2. Sort and Print
+        for pid in sorted(process_events.keys()):
+            # Sort by Start Time, then Priority
+            events = sorted(process_events[pid], key=lambda x: (x[0], x[1]))
             
-            if count > 0:
-                print("-" * 65)
-                print(f"AVG  : {'-':<8} {'-':<8} {'-':<8} {total_tat/count:<8.2f} {total_wt/count:<8.2f} {total_rt/count:<8.2f}")
-
-            # --- Gantt Chart ---
-            print("\n[Gantt Chart Flow]")
-            for log in algo_logs:
-                s = log.start_time / self.time_scale_factor
-                e = log.end_time / self.time_scale_factor
-                dur = e - s
-                if dur <= 0: continue
-                
-                lbl = log.system_state
-                if log.pid is not None: lbl += f"(P{log.pid})"
-                
-                # Simple text bar
-                bar = "█" * int(min(20, dur * 2)) 
-                print(f"{s:6.2f} -> {e:6.2f} : {lbl:<15} {bar}")
+            # Extract just the labels
+            event_labels = [e[2] for e in events]
+            
+            # Join with arrow
+            timeline_str = " -> ".join(event_labels)
+            
+            print(f"P{pid:<3} : {timeline_str}")
 
 
-
-<<<<<<< HEAD
-# Input Section
-input_list: InputList = [ [1, 6], [80000, 50000], [102500, 20000], [175000, 30000] ] # at, cbt / at, cbt, category / at, cbt, m
-=======
-
-
-
-# # processes_data = [[at0, bt0], [at1, bt1], [at2, bt2], [at3, bt3]]
-# # processes_data = [[1, 6], [8, 5], [10.25, 2], [17.50, 3]]
-
-# processes_data = [ [10000, 60000], [80000, 50000], [102500, 20000], [175000, 30000] ]
-
-# s = CPUScheduler(processes_data, context_switch_time=2)
-# print(len(s.processes))
-# print(s.processes)
-
-
-
-input_list: InputList = [ [1, 6], [80000, 50000], [102500, 20000], [175000, 30000] ] 
->>>>>>> b8726e8dc8d36bc52f4097c8b38135c900eeefda
-input_quantum_time: float = 3
-input_cs_time: float = 1
+input_list: InputList = [[0, 1], [0, 7], [2, 9], [3, 25]] # 2,9 / 3,25 / 6, 1 / 10,7
+input_quantum_time: float = 5
+input_cs_time: float = 2
 
 ## Input Validation
 scheduler_mode: SchedulerMode = validate_input_and_determine_scheduler_mode(data_list=input_list, q=input_quantum_time, cs=input_cs_time)
@@ -998,6 +408,7 @@ scheduler_mode: SchedulerMode = validate_input_and_determine_scheduler_mode(data
 
 # Scheduling
 scheduler = Scheduler(data_list_scaled, cs_scaled, q_scaled, scheduler_mode)
-scheduler.run()
+scheduler.run("FCFS")
 
 # Visualization
+
