@@ -11,14 +11,6 @@ from dataclasses import dataclass, field
 ## We need to scale all input times by a factor so that the smallest meaningful unit becomes 1 tick. So let's multiply all input times by TIME_SCALE to convert them into ticks
 TICK: Literal[1] = 1 # One tick = base simulation time unit
 TIME_SCALE: int = 1
-CURRENT_TIME: int = 0 # Global current time in ticks
-
-# Specific CPU States
-class CPUState(Enum):
-    IDLE = "IDLE"
-    CS_SAVE = "CS_SAVE"
-    CS_LOAD = "CS_LOAD"
-    EXECUTING = "EXECUTING"
 
 
 # Process
@@ -37,34 +29,46 @@ class ProcessState(Enum):
     RUNNING = auto()
     WAITING = auto()
     TERMINATED = auto()
-
 @dataclass
 class Process:
+    # MANDATORY FIELDS (No defaults)
     pid: int
-    arrival_time: int # in ticks
-    burst_time: int # in ticks
+    arrival_time: int       # in ticks
+    burst_time: int         # in ticks
+    _process_ready_queue_id: int = field(init=False)
+
     category: ProcessCategory | None = None # If the category isn't None, then we only wanna see the output for MLQ
+    priority: float = 0     # Higher value = Higher priority
     
-    # Dynamic fields
+    # 3. DYNAMIC / INTERNAL FIELDS (init=False)
     remaining_time: int = field(init=False)  # Will be set to burst_time in __post_init__
-    wait_time: int = -1  # Accumulated wait time, in ticks
+    state: ProcessState = field(init=False) # Will be set to burst_time in __post_init__
+    
+    # Statistics
+    wait_time: int = 0  # Accumulated wait time, in ticks
     turnaround_time: int = -1  # To be calculated, in ticks
     start_time: int = -1  # When first started(state changed to running for the first time), in ticks
     response_time: int = -1  # start_time (First CPU time) - arrival_time, in ticks
     completion_time: int = -1  # When finished
-    state: ProcessState = field(init=False) # Will be set to burst_time in __post_init__
-    priority: float = 0 # Higher value = Higher priority, started from zero
-
 
     def __post_init__(self) -> None:
         self.remaining_time = self.burst_time
         self.state = ProcessState.NEW
-
-
+    
+    @property
+    def process_ready_queue_id(self) -> int:
+        return self._process_ready_queue_id
+    
+    @process_ready_queue_id.setter
+    def process_ready_queue_id(self, value: int) -> None:
+        if value < 0:
+            raise ValueError("process_ready_queue_id cannot be negative")
+        self._process_ready_queue_id = value
 # Job
 ## Amir: This section it's not complete yet. so yeah, it doesn't make sense yet. 
 @dataclass
 class Job:
+    jobId: int
     arrival_time: int # in ticks, Arrival to job pool
     burst_time: int # in ticks, CPU burst        
     memory_needed_kb: float        # Required RAM for this job
@@ -179,7 +183,7 @@ def scale_input_time(
     # 1. Collect all Time-Related values to find max precision
     # We look at Q, CS, Arrival Times, and CPU Burst Times.
     # Note: We do NOT look at Memory size (for Jobs) as that is not a time unit.
-    time_values = [q, cs]
+    time_values = [q, cs/2] # so half_cs is an int!
     for item in data_list:
         time_values.append(item[0]) # at
         time_values.append(item[1]) # cbt
@@ -222,3 +226,43 @@ def scale_input_time(
     print(f"[DEBUG] Scaled List: {scaled_list}")
     
     return scaled_list, q_scaled, cs_scaled
+
+
+# Logs:
+## Specific System States
+class SystemState(Enum):
+    IDLE       = "IDLE"
+    CS_SAVE    = "CS_SAVE"     # context save
+    CS_LOAD    = "CS_LOAD"     # context load
+    EXECUTING  = "EXECUTING"
+
+class EventType(Enum):
+    # State transitions / important moments
+    PROCESS_ARRIVAL    = "PROCESS_ARRIVAL"    # First Process arrival: System is no longer IDLE
+    JOB_ARRIVAL        = "JOB_ARRIVAL"
+
+# --- Logging Data Structure ---
+STSAlgo=Literal["FCFS", "SPN", "HRRN", "SRTF", "RR", "MLQ", "MLFQ"]
+LTSAlgo=Literal["FIFO","SJF", "Random"]
+@dataclass
+class SimulationLog:
+    algorithm: Union[STSAlgo,LTSAlgo] | None
+    start_time: float
+    end_time: float
+    id: int | None # Job ID or Process ID
+    event_type: Union[EventType,SystemState]
+
+
+# Ready Queue, JobPool
+@dataclass
+class QueueLevel():
+    algo: STSAlgo
+    queue: List[Process]
+    category: ProcessCategory | None = None
+    q: int | None = None # only if algorithm is preemptive
+    new_event_occurred: bool = False
+@dataclass
+class JobPool():
+    algo: LTSAlgo
+    pool: List[Job]
+    new_event_occurred: bool = False
