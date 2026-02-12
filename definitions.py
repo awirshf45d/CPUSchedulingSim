@@ -38,7 +38,6 @@ class Process:
     _process_ready_queue_id: int = field(init=False)
 
     category: ProcessCategory | None = None # If the category isn't None, then we only wanna see the output for MLQ
-    priority: float = 0     # Higher value = Higher priority
     
     # 3. DYNAMIC / INTERNAL FIELDS (init=False)
     remaining_time: int = field(init=False)  # Will be set to burst_time in __post_init__
@@ -64,20 +63,11 @@ class Process:
         if value < 0:
             raise ValueError("process_ready_queue_id cannot be negative")
         self._process_ready_queue_id = value
-# Job
-## Amir: This section it's not complete yet. so yeah, it doesn't make sense yet. 
-@dataclass
-class Job:
-    jobId: int
-    arrival_time: int # in ticks, Arrival to job pool
-    burst_time: int # in ticks, CPU burst        
-    memory_needed_kb: float        # Required RAM for this job
        
 # Scheduler 
 ## Input type
 class SchedulerMode(Enum):
-    JOB = auto() # Jobs, (AT, CBT, Memory)
-    PROCESS = auto() # Processes, Standard (AT, CBT) 
+    STANDARD = auto() # Processes, Standard (AT, CBT) 
     MLQ = auto() # Processes, (AT, CBT, Category)
 
 # Input
@@ -86,13 +76,11 @@ InputProcessCategory = Literal["BATCH", "INTERACTIVE", "SYSTEM", "REAL_TIME"]
 
 InputProcessNoCategory = Tuple[float, float] # at, cbt
 InputProcessWithCategory = Tuple[float, float, InputProcessCategory] # at, cbt, category (MLQ)
-InputJob = Tuple[float, float, float] # at (arrival time to job pool), cbt, memory_needed_in_kb
 
 InputList = Union[
     List[InputProcessNoCategory],
-    List[InputProcessWithCategory],
-    List[InputJob]
-]
+    List[InputProcessWithCategory]
+    ]
 
 def validate_input_and_determine_scheduler_mode(
     data_list: InputList,
@@ -110,19 +98,14 @@ def validate_input_and_determine_scheduler_mode(
 
     first_item = data_list[0]
     item_len = len(first_item)
-
-    mode: SchedulerMode = SchedulerMode.PROCESS # Default
-    if item_len == 2:
-        mode = SchedulerMode.PROCESS
-    elif item_len == 3:
-        # Check 3rd element type to distinguish MLQ vs JOB
-        third_val = first_item[2]
-        if isinstance(third_val, str):
+    mode: SchedulerMode = SchedulerMode.STANDARD  # Default
+    if item_len == 3:
+        if isinstance(first_item[2], str):
             mode = SchedulerMode.MLQ
-        elif isinstance(third_val, (int, float)):
-            mode = SchedulerMode.JOB
         else:
-            raise ValueError(f"Unknown input format in 3rd column: {third_val}")
+            raise ValueError(f"Unknown input format in 3rd column: {first_item[2]}")
+    elif item_len == 2:
+        mode = SchedulerMode.STANDARD  # Explicitly set default mode for 2-item case
     else:
         raise ValueError(f"Invalid input format. Item length must be 2 or 3. Got: {item_len}")
 
@@ -136,23 +119,15 @@ def validate_input_and_determine_scheduler_mode(
         if cbt <= 0:
             raise ValueError(f"Item at index {i}: CPU Burst Time must be positive. Got: {cbt}")
 
-        # Specific Validations
-        if mode is SchedulerMode.JOB:
-            memory = item[2]
-            if memory <= 0:
-                raise ValueError(f"Item at index {i}: Memory size must be positive. Got: {memory}")
-                
     return mode
     
 
 ## Let's scale the time, so smallest meaningful unit of time becomes 1 tick.
 InputProcessNoCategoryScaled = Tuple[int, int] # at, cbt
 InputProcessWithCategoryScaled = Tuple[int, int, InputProcessCategory] # at, cbt, category (MLQ)
-InputJobScaled = Tuple[int, int, float] # at (arrival time to job pool), cbt, memory_needed_in_kb
 InputListScaled = Union[
     List[InputProcessNoCategoryScaled],
-    List[InputProcessWithCategoryScaled],
-    List[InputJobScaled]
+    List[InputProcessWithCategoryScaled]
 ]
 
 # --- Helper to calculate decimals ---
@@ -182,7 +157,6 @@ def scale_input_time(
     
     # 1. Collect all Time-Related values to find max precision
     # We look at Q, CS, Arrival Times, and CPU Burst Times.
-    # Note: We do NOT look at Memory size (for Jobs) as that is not a time unit.
     time_values = [q, cs/2] # so half_cs is an int!
     for item in data_list:
         time_values.append(item[0]) # at
@@ -214,14 +188,12 @@ def scale_input_time(
         cbt_scaled = int(round(item[1] * TIME_SCALE))
         
         # Reconstruct the tuple/list based on Scheduler mode
-        if scheduler_mode is SchedulerMode.PROCESS:
+        if scheduler_mode is SchedulerMode.STANDARD:
             scaled_list.append((at_scaled, cbt_scaled))
         elif scheduler_mode is SchedulerMode.MLQ:
             # MLQ Mode: (at, cbt, category) - Category is string, keep as is
             scaled_list.append((at_scaled, cbt_scaled, item[2]))
-        elif scheduler_mode is SchedulerMode.JOB:
-            # JOB Mode: (at, cbt, memory) - Memory is size, DO NOT SCALE
-            scaled_list.append((at_scaled, cbt_scaled, item[2]))
+
     print(f"[DEBUG] Automatic Time Scale: {TIME_SCALE} (Max decimals: {max_decimals})")
     print(f"[DEBUG] Scaled List: {scaled_list}")
     
@@ -235,34 +207,26 @@ class SystemState(Enum):
     CS_SAVE    = "CS_SAVE"     # context save
     CS_LOAD    = "CS_LOAD"     # context load
     EXECUTING  = "EXECUTING"
+class ProcessEvents(Enum): # start_time  = end_time
+    PROCESS_ARRIVAL = "PROCESS_ARRIVAL"
 
-class EventType(Enum):
-    # State transitions / important moments
-    PROCESS_ARRIVAL    = "PROCESS_ARRIVAL"    # First Process arrival: System is no longer IDLE
-    JOB_ARRIVAL        = "JOB_ARRIVAL"
 
 # --- Logging Data Structure ---
 STSAlgo=Literal["FCFS", "SPN", "HRRN", "SRTF", "RR", "MLQ", "MLFQ"]
-LTSAlgo=Literal["FIFO","SJF", "Random"]
 @dataclass
 class SimulationLog:
-    algorithm: Union[STSAlgo,LTSAlgo] | None
-    start_time: float
-    end_time: float
-    id: int | None # Job ID or Process ID
-    event_type: Union[EventType,SystemState]
+    algorithm: STSAlgo | None
+    start_time: int
+    end_time: int
+    pid: int | None
+    event_type: Union[ProcessEvents, SystemState]
 
 
-# Ready Queue, JobPool
+# Ready Queue
 @dataclass
 class QueueLevel():
     algo: STSAlgo
     queue: List[Process]
     category: ProcessCategory | None = None
     q: int | None = None # only if algorithm is preemptive
-    new_event_occurred: bool = False
-@dataclass
-class JobPool():
-    algo: LTSAlgo
-    pool: List[Job]
     new_event_occurred: bool = False
