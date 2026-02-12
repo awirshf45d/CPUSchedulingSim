@@ -45,7 +45,7 @@ class Process:
     state: ProcessState = field(init=False) # Will be set to burst_time in __post_init__
     
     # Statistics
-    wait_time: int = -1  # Accumulated wait time, in ticks
+    wait_time: int = 0  # Accumulated wait time, in ticks
     turnaround_time: int = -1  # To be calculated, in ticks
     start_time: int = -1  # When first started(state changed to running for the first time), in ticks
     response_time: int = -1  # start_time (First CPU time) - arrival_time, in ticks
