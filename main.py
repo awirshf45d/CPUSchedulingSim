@@ -928,12 +928,7 @@ class Scheduler:
             print("-" * 65)
             print(f"AVG  : {'-':<8} {'-':<8} {'-':<8} {total_tat/n:<8.2f} {total_wt/n:<8.2f} {total_rt/n:<8.2f}")
 
-                        pass
 
-<<<<<<< HEAD
-                    
-g = [
-=======
         # ==========================
         # 2. SEQUENTIAL EVENT LOG (DEBUG VIEW)
         # ==========================
@@ -993,25 +988,7 @@ g = [
             timeline_str = " -> ".join(event_labels)
             
             print(f"P{pid:<3} : {timeline_str}")
->>>>>>> main
 
-    # Event:
-    [   
-        current_time,    # current TICK number
-        system_state,    # "IDLE", "CS_LOAD", "CS_SAVE", "EXECUTING"
-        event_type,    # like: arrivale, process selection, process termination
-        event_specifications    # like: arrivale, process selection, process termination
-    ],
-    
-    # segment specifications
-    [
-        start,
-        end,
-        system_state,
-        pid
-    ]
-         
-    ]
 
 input_list: InputList = [[9, 1], [0, 7], [21, 6], [20, 11]] # 2,9 / 3,25 / 6, 1 / 10,7
 input_quantum_time: float = 5
@@ -1024,7 +1001,7 @@ scheduler_mode: SchedulerMode = validate_input_and_determine_scheduler_mode(data
 
 # Scheduling
 scheduler = Scheduler(data_list_scaled, cs_scaled, q_scaled, scheduler_mode)
-scheduler.run("SRTF")
+scheduler.run("RR")
 
 # Visualization
 
