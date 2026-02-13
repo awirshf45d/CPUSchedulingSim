@@ -187,7 +187,7 @@ class Scheduler:
                 current_process.remaining_time -= TICK
                                
             elif system_state is SystemState.IDLE:
-                candidate: Process = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue.pop(0) # since input data is already sorted based on at.
+                candidate: Process | None = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue.pop(0) # since input data is already sorted based on at.
                 
                 if candidate:
                     
@@ -327,7 +327,7 @@ class Scheduler:
                 current_process.remaining_time -= TICK
                                
             elif system_state is SystemState.IDLE:
-                candidate: Process = None if len(ready_queue[0].queue) == 0 else min(ready_queue[0].queue, key=lambda p: p.remaining_time) 
+                candidate: Process | None = None if len(ready_queue[0].queue) == 0 else min(ready_queue[0].queue, key=lambda p: p.remaining_time) 
                 
                 if candidate:
                     
@@ -402,9 +402,9 @@ class Scheduler:
 
             if system_state == SystemState.CS_LOAD: 
                 if len(ready_queue[0].queue) > 0: # We need to check the ready queue every ticks! since, at arrival times, waiting time values are equal to zero but one tick later? how about two ticks later? so we need to check it as long as the ready queue is not empty–this might be a bit overdoing, but it's safe.
-                    best_candidate_in_queue: Process = max(ready_queue[0].queue, key=lambda p: (self.current_time - p.arrival_time)/p.burst_time)
-                    should_abort = False
-                    if (self.current_time - best_candidate_in_queue.arrival_time)/best_candidate_in_queue.burst_time > (self.current_time - current_process.arrival_time)/current_process.burst_time:
+                    best_candidate_in_queue: Process = max(ready_queue[0].queue, key=lambda p: (p.wait_time)/p.burst_time)
+                    # should_abort = False
+                    if (best_candidate_in_queue.wait_time)/best_candidate_in_queue.burst_time > (current_process.wait_time)/current_process.burst_time:
                         # should_abort = True
                         self._add_log(ready_queue[0].algo, segment_start_time, self.current_time, current_process.pid, "CS_LOAD")
                         segment_start_time = self.current_time
@@ -468,7 +468,7 @@ class Scheduler:
                 current_process.remaining_time -= TICK
                                
             elif system_state is SystemState.IDLE:
-                candidate: Process = None if len(ready_queue[0].queue) == 0 else max(ready_queue[0].queue, key=lambda p: (self.current_time - p.arrival_time)/p.burst_time) # since HRRN is non-preemptive, and every process in the ready queue was waiting from its arrival time, so the waiting time for them is equal to current time - arrival time.                
+                candidate: Process | None = None if len(ready_queue[0].queue) == 0 else max(ready_queue[0].queue, key=lambda p: (p.wait_time)/p.burst_time) # since HRRN is non-preemptive, and every process in the ready queue was waiting from its arrival time, so the waiting time for them is equal to current time - arrival time.                
                 if candidate:
                     
                     # Log IDLE time if we were waiting
@@ -611,7 +611,7 @@ class Scheduler:
                 current_quantum_counter += TICK
                                
             elif system_state is SystemState.IDLE:
-                candidate: Process = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue.pop(0) # since input data is already sorted based on at.
+                candidate: Process | None = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue.pop(0) # since input data is already sorted based on at.
                 
                 if candidate:
                     
@@ -783,7 +783,7 @@ class Scheduler:
                 current_quantum_counter += TICK
                                
             elif system_state is SystemState.IDLE:
-                candidate: Process = None if len(ready_queue[0].queue) == 0 else min(ready_queue[0].queue, key=lambda p: p.remaining_time) 
+                candidate: Process | None = None if len(ready_queue[0].queue) == 0 else min(ready_queue[0].queue, key=lambda p: p.remaining_time) 
                 
                 if candidate:
                     
@@ -861,7 +861,6 @@ class Scheduler:
             #     queue=[]
             # )
         ]
-        current_priority_level = 0
 
         while completed_count <= total_data_items:
             # 1. Handle Arrivals (append to the first queue).
@@ -881,18 +880,28 @@ class Scheduler:
 
             if system_state == SystemState.CS_LOAD: 
                 # a new process just arrived at a queue with a higher level than the current process?
+                best_candidate_in_queue = None
                 for i, queue_level in enumerate(ready_queue):
                     if queue_level.new_event_occurred and i < current_process.process_ready_queue_id:
                         queue_level.new_event_occurred = False
-                        for queue_level in ready_queue: # Iterate through queues in order of priority
-                            best_candidate_in_queue: Process = None if len(queue_level.queue) == 0 else queue_level.queue.pop(0) # since input data is already sorted based on at.
-                            if best_candidate_in_queue:
-                                break # the break
+                        best_candidate_in_queue = None if len(queue_level.queue) == 0 else queue_level.queue[0] # since input data is already sorted based on at.
+                        if best_candidate_in_queue:
+                                break
+                
+                if best_candidate_in_queue and best_candidate_in_queue.process_ready_queue_id < current_process.process_ready_queue_id:
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "CS_LOAD")
+                    segment_start_time = self.current_time
                     
+                    current_process.state = ProcessState.READY
+                    ready_queue[current_process.process_ready_queue_id].queue.append(current_process)
+                    current_process = None
+                    system_state = SystemState.IDLE
+                    cs_progress = 0
+                    continue # no ticks!
 
                 if cs_progress >= self.half_cs:
                     # Load Complete
-                    self._add_log(ready_queue[0].algo, segment_start_time, self.current_time, current_process.pid, "CS_LOAD")
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "CS_LOAD")
                     segment_start_time = self.current_time
                     
                     system_state = SystemState.EXECUTING
@@ -909,26 +918,69 @@ class Scheduler:
                 cs_progress += TICK    
             elif system_state == SystemState.CS_SAVE:
                 if cs_progress >= self.half_cs:
-                    # Save Complete
-                    self._add_log(ready_queue[0].algo, segment_start_time, self.current_time, outgoing_process.pid, "CS_SAVE")
-                    segment_start_time = self.current_time
+
                     if outgoing_process.state is ProcessState.TERMINATED:
                         outgoing_process.completion_time = self.current_time
                         outgoing_process.turnaround_time = outgoing_process.completion_time - outgoing_process.arrival_time
                     elif outgoing_process.state is ProcessState.READY:
-                        ready_queue[0].queue.append(outgoing_process)
+                        # outgoing_process.process_ready_queue_id could be 1, 2, 3
+                        if outgoing_process.process_ready_queue_id >= len(ready_queue): # Create a new queue level
+                            if outgoing_process.process_ready_queue_id == 3: # is it the last level (FCFS)?
+                                ready_queue.append(
+                                    QueueLevel(
+                                        algo="FCFS",
+                                        q=None,
+                                        queue=[]
+                                    )
+                                )
+                            else: 
+                                ready_queue.append(
+                                    QueueLevel(
+                                        algo="RR",
+                                        q=self.q*(outgoing_process.process_ready_queue_id+1),
+                                        queue=[]
+                                    )
+                                )
+                        ready_queue[outgoing_process.process_ready_queue_id].queue.append(outgoing_process)
+                        
+                    # Save Complete
+                    self._add_log(ready_queue[outgoing_process.process_ready_queue_id].algo, segment_start_time, self.current_time, outgoing_process.pid, "CS_SAVE")
+                    segment_start_time = self.current_time          
                     outgoing_process = None
                     cs_progress = 0
                     
                     system_state = SystemState.IDLE
                     continue # no ticks!
                 cs_progress += TICK
-            elif system_state is SystemState.EXECUTING: # preemptive execution
-                if ready_queue[0].new_event_occurred: # that means a new process just arrived. But we don't care :)
+            elif system_state is SystemState.EXECUTING: # preemptive + non-preemptive execution
+                if ready_queue[current_process.process_ready_queue_id].algo == "FCFS": # non-preemptive
                     pass
+                else: # FIFO: queue_level could be 0, 1, 2
+                    # a new process just arrived at a queue with a higher level than the current process?
+                    best_candidate_in_queue = None
+                    for i, queue_level in enumerate(ready_queue):
+                        if queue_level.new_event_occurred and i < current_process.process_ready_queue_id:
+                            best_candidate_in_queue = None if len(queue_level.queue) == 0 else queue_level.queue[0] # since input data is already sorted based on at.
+                            queue_level.new_event_occurred = False
+                            if best_candidate_in_queue:
+                                break
+                    if best_candidate_in_queue and best_candidate_in_queue.process_ready_queue_id < current_process.process_ready_queue_id:
+                        self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
+                        segment_start_time = self.current_time
+                        
+                        # Ready for CS_save?
+                        current_process.state = ProcessState.READY # append ready queue!
+                        outgoing_process = current_process
+                        current_process = None
+                        
+                        system_state = SystemState.CS_SAVE
+                        current_quantum_counter = 0
+                        cs_progress = 0
+                        continue # no ticks!
+                
                 if current_process.remaining_time <= 0: # terminated
                     # Burst Complete
-                    self._add_log(ready_queue[0].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
                     segment_start_time = self.current_time
                     
                     current_process.state = ProcessState.TERMINATED
@@ -941,13 +993,14 @@ class Scheduler:
                     system_state = SystemState.CS_SAVE
                     cs_progress = 0
                     continue # no ticks!
-                elif current_quantum_counter >= self.q:  # quantum time expired?
+                elif ready_queue[current_process.process_ready_queue_id].algo == "RR" and current_quantum_counter >= ready_queue[current_process.process_ready_queue_id].q:  # quantum time expired? Only Preemptive Queue levels.
                     # Log quantum time expired
-                    self._add_log(ready_queue[0].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
                     segment_start_time = self.current_time
                     
                     # Ready for CS_save?
-                    current_process.state = ProcessState.READY # append ready queue in CS_Save!
+                    current_process.state = ProcessState.READY # append  to the next ready queue in CS_Save!
+                    current_process.process_ready_queue_id+=1 # here's the thing.
                     outgoing_process = current_process
                     current_process = None
                     system_state = SystemState.CS_SAVE
@@ -955,7 +1008,8 @@ class Scheduler:
                     current_quantum_counter = 0
                     continue # no ticks!
                 current_process.remaining_time -= TICK
-                current_quantum_counter += TICK
+                if ready_queue[current_process.process_ready_queue_id].algo == "RR":
+                    current_quantum_counter += TICK
                                
             elif system_state is SystemState.IDLE:
                 for queue_level in ready_queue: # Iterate through queues in order of priority
@@ -995,8 +1049,259 @@ class Scheduler:
 
 
     # ===== MLQ scheduling =====
-    def MLQ(self):
-        pass
+    def MLQ(self):     # Multi‑Level Queue 
+        # At most we have four queues, which they are generated only if needed(automatically).
+        ## First queue: REAL TIME,RR, q=self.q
+        ## Second queue: SYSTEM, SPN , q=self.q*2
+        ## Third queue: INTERACTIVE, FF RR, q=self.q*3
+        ## Fourth queue: FCFS
+        print(f"Running Algorithm: MLQ...")
+        # --- Initialization ---
+        self._reset_simulation_objects()
+        system_state = SystemState.IDLE
+        current_process: Optional[Process] = None
+        outgoing_process: Optional[Process] = None # For CS_SAVE
+        # CS Tracking
+        cs_progress = 0
+        # Quantum Tracking
+        current_quantum_counter = 0
+        # Logging Pointers
+        segment_start_time = 0
+        next_arrival_idx = 0
+        completed_count = 0
+        total_data_items = len(self.input_data_list)
+        
+        
+        # ready queues
+        ready_queue: List[QueueLevel] = [
+            QueueLevel(
+                q=self.q*1, # Preemptive logic
+                algo="RR",
+                queue=[]
+            ),
+            QueueLevel(
+                q=self.q*2, # Preemptive logic
+                algo="SPN",
+                queue=[]
+            ),
+            QueueLevel(
+                q=self.q*3, # Preemptive logic
+                algo="RR",
+                queue=[]
+            ),
+            QueueLevel(
+                q=None, # non-Preemptive logic
+                algo="FCFS",
+                queue=[]
+            )
+        ]
+
+        while completed_count <= total_data_items:
+            # 1. Handle Arrivals (append to the first queue).
+            while next_arrival_idx < total_data_items:
+                proc = self.processes[next_arrival_idx]
+                if proc.arrival_time <= self.current_time:
+                    proc.state = ProcessState.READY
+                    
+                    # add to ready queue
+                    if proc.category == ProcessCategory.REAL_TIME.value: # 0, RR
+                        ready_queue[0].queue.append(proc)
+                        ready_queue[0].new_event_occurred = True
+                        proc.process_ready_queue_id = 0
+                    elif proc.category == ProcessCategory.SYSTEM.value: # 1, SPN
+                        ready_queue[1].queue.append(proc)
+                        ready_queue[1].new_event_occurred = True
+                        proc.process_ready_queue_id = 1
+                    elif proc.category == ProcessCategory.INTERACTIVE.value: # 2, RR
+                        ready_queue[2].queue.append(proc)
+                        ready_queue[2].new_event_occurred = True
+                        proc.process_ready_queue_id = 2
+                    elif proc.category == ProcessCategory.BATCH.value: # 3, FCFS
+                        ready_queue[3].queue.append(proc)
+                        ready_queue[3].new_event_occurred = True
+                        proc.process_ready_queue_id = 3
+    
+                    next_arrival_idx += 1
+                    self._add_log(ready_queue[proc.process_ready_queue_id].algo, start_time=self.current_time, end_time=self.current_time, pid=proc.pid, event_type=ProcessEvents.PROCESS_ARRIVAL.value)
+                else:
+                    break
+            
+
+            if system_state == SystemState.CS_LOAD: 
+                # a new process just arrived at a queue with a higher level than the current process?
+                best_candidate_in_queue = None
+                for i, queue_level in enumerate(ready_queue):
+                    if queue_level.new_event_occurred and i < current_process.process_ready_queue_id:
+                        queue_level.new_event_occurred = False
+                        best_candidate_in_queue = None if len(queue_level.queue) == 0 else queue_level.queue[0] # since input data is already sorted based on at.
+                        if best_candidate_in_queue:
+                                break
+                
+                if best_candidate_in_queue and best_candidate_in_queue.process_ready_queue_id < current_process.process_ready_queue_id:
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "CS_LOAD")
+                    segment_start_time = self.current_time
+                    
+                    current_process.state = ProcessState.READY
+                    ready_queue[current_process.process_ready_queue_id].queue.append(current_process)
+                    current_process = None
+                    system_state = SystemState.IDLE
+                    cs_progress = 0
+                    continue # no ticks!
+
+                if cs_progress >= self.half_cs:
+                    # Load Complete
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "CS_LOAD")
+                    segment_start_time = self.current_time
+                    
+                    system_state = SystemState.EXECUTING
+                    current_process.state = ProcessState.RUNNING
+                    current_quantum_counter = 0
+                    cs_progress = 0
+
+                    # First run metrics
+                    if current_process.start_time == -1:
+                        current_process.start_time = self.current_time
+                        current_process.response_time = current_process.start_time - current_process.arrival_time
+                        # current_process.wait_time = current_process.response_time # preemptive WT≠RT
+                    continue # no ticks!
+                cs_progress += TICK    
+            elif system_state == SystemState.CS_SAVE:
+                if cs_progress >= self.half_cs:
+
+                    if outgoing_process.state is ProcessState.TERMINATED:
+                        outgoing_process.completion_time = self.current_time
+                        outgoing_process.turnaround_time = outgoing_process.completion_time - outgoing_process.arrival_time
+                    elif outgoing_process.state is ProcessState.READY:
+                        # outgoing_process.process_ready_queue_id could be 1, 2, 3
+                        if outgoing_process.process_ready_queue_id >= len(ready_queue): # Create a new queue level
+                            if outgoing_process.process_ready_queue_id == 3: # is it the last level (FCFS)?
+                                ready_queue.append(
+                                    QueueLevel(
+                                        algo="FCFS",
+                                        q=None,
+                                        queue=[]
+                                    )
+                                )
+                            else: 
+                                ready_queue.append(
+                                    QueueLevel(
+                                        algo="RR",
+                                        q=self.q*(outgoing_process.process_ready_queue_id+1),
+                                        queue=[]
+                                    )
+                                )
+                        ready_queue[outgoing_process.process_ready_queue_id].queue.append(outgoing_process)
+                        
+                    # Save Complete
+                    self._add_log(ready_queue[outgoing_process.process_ready_queue_id].algo, segment_start_time, self.current_time, outgoing_process.pid, "CS_SAVE")
+                    segment_start_time = self.current_time          
+                    outgoing_process = None
+                    cs_progress = 0
+                    
+                    system_state = SystemState.IDLE
+                    continue # no ticks!
+                cs_progress += TICK
+            elif system_state is SystemState.EXECUTING: # preemptive + non-preemptive execution
+                if ready_queue[current_process.process_ready_queue_id].algo == "FCFS": # non-preemptive
+                    pass
+                else: # FIFO: queue_level could be 0, 1, 2
+                    # a new process just arrived at a queue with a higher level than the current process?
+                    best_candidate_in_queue = None
+                    for i, queue_level in enumerate(ready_queue):
+                        if queue_level.new_event_occurred and i < current_process.process_ready_queue_id:
+                            best_candidate_in_queue = None if len(queue_level.queue) == 0 else queue_level.queue[0] # since input data is already sorted based on at.
+                            queue_level.new_event_occurred = False
+                            if best_candidate_in_queue:
+                                break
+                    if best_candidate_in_queue and best_candidate_in_queue.process_ready_queue_id < current_process.process_ready_queue_id:
+                        self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
+                        segment_start_time = self.current_time
+                        
+                        # Ready for CS_save?
+                        current_process.state = ProcessState.READY # append ready queue!
+                        outgoing_process = current_process
+                        current_process = None
+                        
+                        system_state = SystemState.CS_SAVE
+                        current_quantum_counter = 0
+                        cs_progress = 0
+                        continue # no ticks!
+                
+                if current_process.remaining_time <= 0: # terminated
+                    # Burst Complete
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
+                    segment_start_time = self.current_time
+                    
+                    current_process.state = ProcessState.TERMINATED
+                    completed_count += 1
+                    
+                    outgoing_process = current_process
+                    current_process = None
+                    current_quantum_counter = 0
+                    
+                    system_state = SystemState.CS_SAVE
+                    cs_progress = 0
+                    continue # no ticks!
+                elif ready_queue[current_process.process_ready_queue_id].algo == "RR" and current_quantum_counter >= ready_queue[current_process.process_ready_queue_id].q:  # quantum time expired? Only Preemptive Queue levels.
+                    # Log quantum time expired
+                    self._add_log(ready_queue[current_process.process_ready_queue_id].algo, segment_start_time, self.current_time, current_process.pid, "EXECUTING")
+                    segment_start_time = self.current_time
+                    
+                    # Ready for CS_save?
+                    current_process.state = ProcessState.READY # append  to the next ready queue in CS_Save!
+                    current_process.process_ready_queue_id+=1 # here's the thing.
+                    outgoing_process = current_process
+                    current_process = None
+                    system_state = SystemState.CS_SAVE
+                    cs_progress = 0
+                    current_quantum_counter = 0
+                    continue # no ticks!
+                current_process.remaining_time -= TICK
+                if ready_queue[current_process.process_ready_queue_id].algo == "RR":
+                    current_quantum_counter += TICK
+                               
+            elif system_state is SystemState.IDLE: # Iterate through queues in order of priority
+                candidate = None
+                if len(ready_queue[0].queue) != 0: # RR, 0, real-time
+                    candidate: Process | None = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue[0] # since input data is already sorted based on at.  
+                elif len(ready_queue[1].queue) != 0: # SPN, 0, system
+                    candidate: Process = None if len(ready_queue[1].queue) == 0 else min(ready_queue[1].queue, key=lambda p: p.remaining_time)
+                elif len(ready_queue[2].queue) != 0: # RR, 0, realtime
+                    candidate: Process | None = None if len(ready_queue[2].queue.queue) == 0 else ready_queue[2].queue.queue[0] # since input data is already sorted based on at.
+                elif len(ready_queue[3].queue) != 0: # FCFS, 3, batch
+                    candidate: Process | None = None if len(ready_queue[3].queue) == 0 else ready_queue[3].queue[0] # since input data is already sorted based on at.
+                    
+                
+                if candidate:
+                    # Log IDLE time if we were waiting
+                    if self.current_time > segment_start_time: # avoid logging on 0 if a process arrived at 0 and system was idle(situations like: system is idle, but it switches into other states instantly, no ticks)
+                        self._add_log(ready_queue[candidate.process_ready_queue_id].algo, segment_start_time, self.current_time, None, "IDLE")
+                        segment_start_time = self.current_time
+                        
+                    ready_queue[candidate.process_ready_queue_id].remov
+                    current_process = candidate # Removed from queue
+                    system_state = SystemState.CS_LOAD
+                    cs_progress = 0
+                    ready_queue[current_process.process_ready_queue_id].new_event_occurred = False # Since the best candidate till now is already chosen and the time is gonna be frozen for one tick.
+                    
+                    continue # no ticks!     
+            # Advance Time
+            
+            for queue_level in ready_queue:
+                for p in queue_level.queue:
+                    p.wait_time += TICK # add waiting time to all processes in all queues.
+                
+            self.current_time += TICK
+            # Safety break
+            ## Check if every queue list is empty
+            are_all_queues_empty = all(len(queue_level.queue) == 0 for queue_level in ready_queue)
+            if (system_state == SystemState.IDLE and 
+                are_all_queues_empty and 
+                next_arrival_idx >= total_data_items and 
+                current_process is None and
+                outgoing_process is None):
+                break
+
 
     # --- Helper Methods ---
     def _reset_simulation_objects(self) -> None:
@@ -1140,9 +1445,8 @@ class Scheduler:
         
         
 
-
 input_list: InputList = [[0, 1], [0, 8], [3, 1], [20, 11]] 
-input_quantum_time: float = 5
+input_quantum_time: float = 1
 input_cs_time: float = 4
 input_algorithm: STSAlgo = "MLFQ"
 
@@ -1154,6 +1458,4 @@ scheduler_mode: SchedulerMode = validate_input_and_determine_scheduler_mode(data
 # Scheduling
 scheduler = Scheduler(data_list_scaled, cs_scaled, q_scaled, scheduler_mode)
 scheduler.run(input_algorithm)
-
-# Visualization
 

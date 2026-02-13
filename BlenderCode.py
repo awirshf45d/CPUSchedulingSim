@@ -897,14 +897,17 @@ def blackboard_reset():
         return objs
     
 
+    def delete_collection_if_exists(name):
+        coll = bpy.data.collections.get(name)
+        if coll:
+            bpy.data.collections.remove(coll)
+    
+
     # -----------------------------------------------------------------------------------------------------------------
     col_name   = "Dynamic"
 
     # --- Get collection ---
     coll = bpy.data.collections.get(col_name)
-    if coll is None:
-        raise ValueError(f"Collection '{col_name}' not found")
-
 
     # --- delete everything in collection (recursively) ---
     if coll:
@@ -912,49 +915,10 @@ def blackboard_reset():
             bpy.data.objects.remove(obj, do_unlink=True)
     # -----------------------------------------------------
 
-
-
-    # --- Get sub collection -----------------------------
-    col_name   = "dynamic input table"
-
-    coll = bpy.data.collections.get(col_name)
-    if coll is None:
-        raise ValueError(f"Collection '{col_name}' not found")
-
-    # --- delete the collection ---------------------------
-    if coll:
-        bpy.data.collections.remove(coll)
-    # -----------------------------------------------------
-
-
-
-    # --- Get sub collection -----------------------------
-    col_name   = "dynamic simulation result"
-
-    coll = bpy.data.collections.get(col_name)
-    if coll is None:
-        raise ValueError(f"Collection '{col_name}' not found")
-
-    # --- delete the collection ---------------------------
-    if coll:
-        bpy.data.collections.remove(coll)
-    # -----------------------------------------------------
-
-
-
-    # --- Get sub collection -----------------------------
-    col_name   = "dynamic gantt chart"
-
-    coll = bpy.data.collections.get(col_name)
-    if coll is None:
-        raise ValueError(f"Collection '{col_name}' not found")
-
-    # --- delete the collection ---------------------------
-    if coll:
-        bpy.data.collections.remove(coll)
-    # -----------------------------------------------------
-
-
+    delete_collection_if_exists("dynamic input table")
+    delete_collection_if_exists("dynamic simulation result")
+    delete_collection_if_exists("dynamic gantt chart")
+    
     # -----------------------------------------------------------------------------------------------------------------
 
     # moving the controller empty to the initial position:

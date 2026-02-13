@@ -16,5 +16,3 @@
 !BlenderCode.py
 
 # Whitelist a directory and its contents
-!AI Code/
-!AI Code/**
