@@ -1,12 +1,50 @@
+# import bpy
+# import sys
+
+# # --- HELPER FUNCTION TO RELOAD BLENDER TEXT BLOCKS ---
+# def require(module_name):
+#     """
+#     Reloads a Blender text block as a module and updates sys.modules.
+#     Use this before importing local scripts.
+#     """
+#     filename = module_name + ".py"
+    
+#     # 1. Force Python to forget the old version
+#     if module_name in sys.modules:
+#         del sys.modules[module_name]
+        
+#     # 2. Re-compile the text block
+#     if filename in bpy.data.texts:
+#         mod = bpy.data.texts[filename].as_module()
+#         sys.modules[module_name] = mod
+#     else:
+#         raise ImportError(f"❌ '{filename}' not found in Blender Text Editor!")
+
+# # =========================================================
+# # 1. LOAD DEPENDENCIES (Order Matters!)
+# # =========================================================
+
+# # Load 'definitions' first because everyone uses it
+# require("definitions")
+
+# # Load 'BlenderCode' next
+# require("BlenderCode")
+
+# # =========================================================
+# # 2. NOW IMPORT NORMALLY
+# # =========================================================
+
 from typing import Union, List, Optional
 from dataclasses import dataclass, field
+# import BlenderCode
 from definitions import (
-    TICK, TIME_SCALE,
+    TICK,
     SimulationLog, SystemState, SchedulerMode, ProcessEvents,
     Process, ProcessState, ProcessCategory,
     InputList, validate_input_and_determine_scheduler_mode, scale_input_time,
     QueueLevel, STSAlgo
 )
+
 
 @dataclass
 class Scheduler:
@@ -778,7 +816,7 @@ class Scheduler:
 
 
     def MLFQ(self):     # Multi‑Level Feedback Queue
-        # At most we have four queues, which they are generated only if needed.
+        # At most we have four queues, which they are generated only if needed(automatically).
         ## First queue: RR, q=self.q
         ## Second queue: RR, q=self.q*2
         ## Third queue: RR, q=self.q*3
@@ -798,6 +836,7 @@ class Scheduler:
         next_arrival_idx = 0
         completed_count = 0
         total_data_items = len(self.input_data_list)
+        
         
         # ready queues
         ready_queue: List[QueueLevel] = [
@@ -822,8 +861,10 @@ class Scheduler:
             #     queue=[]
             # )
         ]
+        current_priority_level = 0
+
         while completed_count <= total_data_items:
-            # 1. Handle Arrivals.
+            # 1. Handle Arrivals (append to the first queue).
             while next_arrival_idx < total_data_items:
                 proc = self.processes[next_arrival_idx]
                 if proc.arrival_time <= self.current_time:
@@ -839,16 +880,15 @@ class Scheduler:
             
 
             if system_state == SystemState.CS_LOAD: 
-                # a new process just arrived at the queue with a higher level than the current process?
+                # a new process just arrived at a queue with a higher level than the current process?
                 for i, queue_level in enumerate(ready_queue):
                     if queue_level.new_event_occurred and i < current_process.process_ready_queue_id:
-                        
-                if ready_queue[0].new_event_occurred and 0 < current_process.process_ready_queue_id: # 1,2,3
-                    pass
-                elif ready_queue[1].new_event_occurred and 1 < current_process.process_ready_queue_id: # 2,3
-                    pass
-                elif ready_queue[2].new_event_occurred and 2 < current_process.process_ready_queue_id: # 3
-                    pass
+                        queue_level.new_event_occurred = False
+                        for queue_level in ready_queue: # Iterate through queues in order of priority
+                            best_candidate_in_queue: Process = None if len(queue_level.queue) == 0 else queue_level.queue.pop(0) # since input data is already sorted based on at.
+                            if best_candidate_in_queue:
+                                break # the break
+                    
 
                 if cs_progress >= self.half_cs:
                     # Load Complete
@@ -918,31 +958,36 @@ class Scheduler:
                 current_quantum_counter += TICK
                                
             elif system_state is SystemState.IDLE:
-                candidate: Process = None if len(ready_queue[0].queue) == 0 else ready_queue[0].queue.pop(0) # since input data is already sorted based on at.
+                for queue_level in ready_queue: # Iterate through queues in order of priority
+                    candidate: Process = None if len(queue_level.queue) == 0 else queue_level.queue.pop(0) # since input data is already sorted based on at.
+                    if candidate:
+                        break
                 
                 if candidate:
-                    
                     # Log IDLE time if we were waiting
                     if self.current_time > segment_start_time: # avoid logging on 0 if a process arrived at 0 and system was idle(situations like: system is idle, but it switches into other states instantly, no ticks)
-                        self._add_log(ready_queue[0].algo, segment_start_time, self.current_time, None, "IDLE")
+                        self._add_log(ready_queue[candidate.process_ready_queue_id].algo, segment_start_time, self.current_time, None, "IDLE")
                         segment_start_time = self.current_time
                         
                     
                     current_process = candidate # Removed from queue
                     system_state = SystemState.CS_LOAD
                     cs_progress = 0
-                    ready_queue[0].new_event_occurred = False # Since the best candidate till now is already chosen and the time is gonna be frozen for one tick.
+                    ready_queue[current_process.process_ready_queue_id].new_event_occurred = False # Since the best candidate till now is already chosen and the time is gonna be frozen for one tick.
                     
                     continue # no ticks!     
             # Advance Time
             
-            for p in ready_queue[0].queue:
-                p.wait_time += TICK
+            for queue_level in ready_queue:
+                for p in queue_level.queue:
+                    p.wait_time += TICK # add waiting time to all processes in all queues.
                 
             self.current_time += TICK
             # Safety break
+            ## Check if every queue list is empty
+            are_all_queues_empty = all(len(queue_level.queue) == 0 for queue_level in ready_queue)
             if (system_state == SystemState.IDLE and 
-                len(ready_queue[0].queue) == 0 and 
+                are_all_queues_empty and 
                 next_arrival_idx >= total_data_items and 
                 current_process is None and
                 outgoing_process is None):
@@ -976,17 +1021,18 @@ class Scheduler:
         Generates:
         1. Metrics Table
         2. gantt chart
-        """
-        # Note: All print statements are displayed in the console. 
-        # So we can also see anything that appears in Blender in the console for debugging.
         
+        Shown Both in Blender, and Terminal as logs
+        """        
         # ==========================
         # 0. Helper Functions
         # ==========================
         ## Helper to format time cleanly (e.g., 5.0 -> 5)
         ### If val is a whole number (e.g., 5.0), format as "5", otherwise keep precision (e.g., "5.25").
-        def fmt(t):
-            val = t / TIME_SCALE
+        def fmt(t, descaling: bool = False) -> str:
+            val = t
+            if descaling:
+                val = t / TIME_SCALE
             return f"{val:.0f}" if val.is_integer() else f"{val:.2f}"
         
         # ==========================
@@ -1047,7 +1093,7 @@ class Scheduler:
 
         # Add Arrivals
         for p in self.processes:
-            label = f"AT({fmt(p.arrival_time)})"
+            label = f"AT({fmt(p.arrival_time, True)})"
             # Priority 0: Arrivals come first
             process_events[p.pid].append((p.arrival_time, 0, label))
 
@@ -1056,8 +1102,8 @@ class Scheduler:
             if log.pid is None: continue # Skip idle
             if log.start_time == log.end_time: continue # Skip instantaneous system events
 
-            start_time_str = fmt(log.start_time)
-            end_time_str = fmt(log.end_time)
+            start_time_str = fmt(log.start_time, True)
+            end_time_str = fmt(log.end_time, True)
 
             if log.event_type == 'EXECUTING':
                 lbl = f"Exec({start_time_str}-{end_time_str})"
@@ -1085,16 +1131,24 @@ class Scheduler:
             print(f"P{pid:<3} : {timeline_str}")
         print("\n")
         print(self.logs)
+        
+        # ==========================
+        # 3. Blender
+        # ==========================
+#        BlenderCode.blackboard_reset()
+        # BlenderCode.generate_gantt_and_metrics_table_blender(self.logs, self.processes, input_quantum_time, input_cs_time, input_algorithm, TIME_SCALE)
+        
+        
 
 
-input_list: InputList = [[0, 1], [0, 8], [21, 1], [20, 11]]
+input_list: InputList = [[0, 1], [0, 8], [3, 1], [20, 11]] 
 input_quantum_time: float = 5
 input_cs_time: float = 4
-input_algorithm: STSAlgo = "SRTF"
+input_algorithm: STSAlgo = "MLFQ"
 
 ## Input Validation
 scheduler_mode: SchedulerMode = validate_input_and_determine_scheduler_mode(data_list=input_list, q=input_quantum_time, cs=input_cs_time)
-(data_list_scaled, q_scaled, cs_scaled) = scale_input_time(data_list=input_list, q=input_quantum_time, cs=input_cs_time, scheduler_mode=scheduler_mode, max_precision=4)
+(data_list_scaled, q_scaled, cs_scaled, TIME_SCALE) = scale_input_time(data_list=input_list, q=input_quantum_time, cs=input_cs_time, scheduler_mode=scheduler_mode, max_precision=4)
 
 
 # Scheduling

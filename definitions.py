@@ -197,7 +197,7 @@ def scale_input_time(
     print(f"[DEBUG] Automatic Time Scale: {TIME_SCALE} (Max decimals: {max_decimals})")
     print(f"[DEBUG] Scaled List: {scaled_list}")
     
-    return scaled_list, q_scaled, cs_scaled
+    return scaled_list, q_scaled, cs_scaled, TIME_SCALE
 
 
 # Logs:
