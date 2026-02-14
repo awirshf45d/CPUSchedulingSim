@@ -15,4 +15,8 @@
 !backbone.txt
 !BlenderCode.py
 
+## Whitelist image files
+!rendered-img-1.png
+!rendered-img-2.png
+
 # Whitelist a directory and its contents

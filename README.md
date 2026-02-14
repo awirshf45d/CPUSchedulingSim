@@ -11,8 +11,6 @@ Unlike standard command-line simulators, this project visualizes the exact "hear
 *Figure 2: Generated Metrics Table and 3D Gantt Chart*
 
 
----
-
 
 ## Core Architecture: Event-Driven Simulation
 
@@ -29,7 +27,6 @@ For algorithms like **MLQ** and **MLFQ**:
 *   The system manages multiple `QueueLevel` objects, each with its own logic (e.g., Round Robin for interactive, FCFS for batch).
 *   The scheduler continually scans these levels from top (highest priority) to bottom. If a process arrives in Queue 0 while the CPU is working on Queue 2, the lower-priority process is immediately interrupted.
 
----
 
 ## Features
 
@@ -43,7 +40,6 @@ For algorithms like **MLQ** and **MLFQ**:
     *   Completion Time (CT)
 
 
----
 
 ## Supported Algorithms
 
@@ -57,7 +53,6 @@ The `Scheduler` class supports both Preemptive and Non-Preemptive algorithms:
 6.  **MLQ** (Multi-Level Queue) - *Fixed Priority with multiple queues*
 7.  **MLFQ** (Multi-Level Feedback Queue) - *Dynamic Priority Feedback*
 
----
 
 ## Project Structure
 
@@ -66,7 +61,7 @@ The `Scheduler` class supports both Preemptive and Non-Preemptive algorithms:
 *   **`definitions.py`**: Shared data structures (`Process`, `SimulationLog`), Enums, and helper functions for input validation and time scaling.
 *   **`BlenderCode.py`**: The interface between the Python logic and Blender. Handles 3D object creation, material assignment, and text generation.
 
----
+
 
 ## How to Run
 
@@ -93,7 +88,6 @@ BlenderCode.blackboard_reset()
 BlenderCode.generate_gantt_and_metrics_table_blender(self.logs, ...)
 ```
 
----
 
 ## Configuration Example
 
