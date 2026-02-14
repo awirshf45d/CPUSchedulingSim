@@ -4,10 +4,15 @@ A high-fidelity CPU process scheduling simulator that utilizes the **Blender Pyt
 
 Unlike standard command-line simulators, this project visualizes the exact "heartbeat" of the CPU, showing how different scheduling algorithms handle process execution, context switching, idle time, and queue management in a 3D environment.
 
-![Rendered Output Example](./rendered-img-2.png)
-![Rendered Output Example](./rendered-img-1.png)
+![Example of 3D Gantt Chart and Metrics Table Visualization](./rendered-img-2.png)
+*Figure 1: Generated Metrics Table and 3D Gantt Chart*
+
+![Example of 3D Gantt Chart and Metrics Table Visualization](./rendered-img-1.png)
+*Figure 2: Generated Metrics Table and 3D Gantt Chart*
+
 
 ---
+
 
 ## Core Architecture: Event-Driven Simulation
 
@@ -26,7 +31,7 @@ For algorithms like **MLQ** and **MLFQ**:
 
 ---
 
-## 🚀 Features
+## Features
 
 *   **3D Visualization:** Draws the Gantt chart, axes, and data tables directly into a 3D "Blackboard" scene.
 *   **Precise Timing:** Automatically handles floating-point inputs (e.g., 0.4ms) by scaling them to integer "ticks" to prevent floating-point errors during simulation.
@@ -36,6 +41,7 @@ For algorithms like **MLQ** and **MLFQ**:
     *   Waiting Time (WT)
     *   Response Time (RT)
     *   Completion Time (CT)
+
 
 ---
 
@@ -93,7 +99,7 @@ BlenderCode.generate_gantt_and_metrics_table_blender(self.logs, ...)
 
 Located at the bottom of `main.py`:
 
-python
+```python
 # [Arrival Time, Burst Time]
 input_list: InputList = [
 [0, 6], 
@@ -112,3 +118,4 @@ input_algorithm: STSAlgo = "SRTF" # Choose Algorithm
 # Run the scheduler
 scheduler = Scheduler(...)
 scheduler.run(input_algorithm)
+```
